@@ -1,0 +1,50 @@
+/* StreamWatcherIndicator Plugin Styles */
+
+/* Wrapper for positioning the eye icon */
+.vc-stream-watcher-indicator-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+/* Darken avatar when user is watching stream */
+.vc-stream-watcher-darkened {
+    transition: filter 0.3s ease !important;
+}
+
+/* Eye icon overlay - NO background circle, just the icon */
+.vc-stream-watcher-eye-overlay {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 10;
+    /* Add a subtle shadow to make the white icon visible on light backgrounds */
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+}
+
+.vc-stream-watcher-eye-overlay svg {
+    display: block;
+}
+
+/* Animation for when the icon appears */
+@keyframes vc-stream-watcher-fade-in {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.vc-stream-watcher-eye-overlay {
+    animation: vc-stream-watcher-fade-in 0.2s ease-out;
+}
+
+
+
+
