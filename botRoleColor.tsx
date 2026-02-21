@@ -254,8 +254,7 @@ function applyBotRoleColor() {
             intensity,
         );
 
-        // Apply the new color to message content
-        messageContent.style.color = `rgb(${newR}, ${newG}, ${newB})`;
+        // Do NOT apply color globally to messageContent - apply selectively instead
         messageContent.dataset.botColorApplied = "true";
 
         // Apply the full role color to the username (not affected by intensity setting)
@@ -267,16 +266,47 @@ function applyBotRoleColor() {
             username.style.color = `rgb(${roleR}, ${roleG}, ${roleB})`;
         }
 
-        // Also apply to all text elements inside (but not links or mentions)
-        const textElements = messageContent.querySelectorAll("*");
-        textElements.forEach((el: any) => {
-            if (
-                el.tagName !== "A" &&
-                !el.classList.contains("mention") &&
-                !el.closest('[class*="repliedMessage"]')
-            ) {
-                el.style.color = `rgb(${newR}, ${newG}, ${newB})`;
+        // Apply color to text nodes and elements (but not links, mentions, or elements inside mentions)
+        const applyColorRecursively = (node: any) => {
+            // Skip if inside a mention element
+            if (node.closest?.('[class*="mention"]')) return;
+
+            if (node.nodeType === Node.TEXT_NODE) {
+                // For text nodes, wrap them in a span if needed
+                const text = node.textContent?.trim();
+                if (text && text.length > 0) {
+                    const span = document.createElement('span');
+                    span.style.color = `rgb(${newR}, ${newG}, ${newB})`;
+                    span.textContent = node.textContent;
+                    node.parentNode?.replaceChild(span, node);
+                }
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                const el = node as HTMLElement;
+
+                // Skip links, mentions, and their content
+                if (
+                    el.tagName === "A" ||
+                    el.classList.contains("mention") ||
+                    el.closest('[class*="mention"]') ||
+                    el.closest('[class*="repliedMessage"]')
+                ) {
+                    return;
+                }
+
+                // For other elements, apply color and recurse
+                if (!el.style.color) {
+                    el.style.color = `rgb(${newR}, ${newG}, ${newB})`;
+                }
+
+                // Recurse to children
+                Array.from(el.childNodes).forEach(child => applyColorRecursively(child));
             }
+        };
+
+        // Apply color to direct children
+        Array.from(messageContent.childNodes).forEach(child => {
+            if ((child as HTMLElement).closest?.('[class*="mention"]')) return;
+            applyColorRecursively(child);
         });
 
         // Apply to embed content as well
