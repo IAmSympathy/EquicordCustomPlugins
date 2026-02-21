@@ -1,0 +1,10 @@
+﻿# Fichiers de développement
+*.log
+.DS_Store
+Thumbs.db
+
+# Plugins désactivés (commencent par _)
+_*/
+
+# Node modules si présents
+node_modules/
