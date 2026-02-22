@@ -513,10 +513,6 @@ export default definePlugin({
 
         setTimeout(() => applyBotRoleColor(), 100);
 
-        // Track pending retries so we can clear them on stop()
-        const retryTimers: ReturnType<typeof setTimeout>[] = [];
-        (this as any).retryTimers = retryTimers;
-
         /**
          * Reset all plugin markers on a message article element and all its
          * descendants so that the next applyBotRoleColor() pass re-processes it
@@ -573,94 +569,88 @@ export default definePlugin({
             }
         }
 
-        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+        let rafPending = false;
 
         const observer = new MutationObserver((mutations: MutationRecord[]) => {
             // Ignore mutations caused by our own style/dataset changes
             if (isApplying) return;
 
-            // Only react if real Discord nodes were added (not just attribute changes)
             let hasNewNodes = false;
             const articlesToReset = new Set<HTMLElement>();
 
             for (const mutation of mutations) {
-                // Ignore attribute mutations (those are from us changing style/dataset)
                 if (mutation.type === "attributes") continue;
 
                 if (mutation.addedNodes.length > 0) {
                     hasNewNodes = true;
                 }
 
-                // For childList mutations on already-processed messages, reset them
-                // BUT ignore mutations caused by our own overlay/marker insertions
                 if (mutation.type === "childList") {
-                    // If all added/removed nodes are our own plugin nodes, skip
+                    // Skip mutations that are only our own overlay nodes
                     const allNodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
                     const isOurOwnMutation = allNodes.length > 0 && allNodes.every(n => {
                         if (n.nodeType !== Node.ELEMENT_NODE) return true;
-                        const el = n as HTMLElement;
-                        return el.hasAttribute("data-vc-bg-overlay");
+                        return (n as HTMLElement).hasAttribute("data-vc-bg-overlay");
                     });
                     if (isOurOwnMutation) continue;
 
-                    let node: Element | null = mutation.target as Element;
-                    while (node && node !== document.body) {
-                        if (node.getAttribute("role") === "article") {
-                            const msgContent = node.querySelector("[data-vc-msg-applied]");
-                            const embedApplied = node.querySelector("[data-vc-embed-applied]");
-                            if (msgContent || embedApplied) {
-                                articlesToReset.add(node as HTMLElement);
+                    // Only reset a message article if a bot embed or message content
+                    // was removed (real edit), not just any child change
+                    const hasRemovedContent = Array.from(mutation.removedNodes).some(n => {
+                        if (n.nodeType !== Node.ELEMENT_NODE) return false;
+                        const el = n as HTMLElement;
+                        // A real content replacement: embed article or message content div was removed
+                        return el.matches('article[class*="embed"]') ||
+                            el.matches('[class*="messageContent"]') ||
+                            el.querySelector('article[class*="embed"]') !== null;
+                    });
+
+                    if (hasRemovedContent) {
+                        let node: Element | null = mutation.target as Element;
+                        while (node && node !== document.body) {
+                            if (node.getAttribute("role") === "article") {
+                                const msgContent = node.querySelector("[data-vc-msg-applied]");
+                                const embedApplied = node.querySelector("[data-vc-embed-applied]");
+                                if (msgContent || embedApplied) {
+                                    articlesToReset.add(node as HTMLElement);
+                                }
+                                break;
                             }
-                            break;
+                            node = node.parentElement;
                         }
-                        node = node.parentElement;
                     }
                 }
             }
 
             if (!hasNewNodes && articlesToReset.size === 0) return;
 
-            // Reset articles that need re-processing (e.g. bot edited message)
+            // Reset articles that need re-processing synchronously before the apply
             if (articlesToReset.size > 0) {
                 safeApply(() => {
                     articlesToReset.forEach(article => resetMessageElement(article));
                 });
             }
 
-            // Debounce the apply pass
-            if (debounceTimer) clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                debounceTimer = null;
-                safeApply(() => applyBotRoleColor());
-
-                // One single retry at 800ms for messages whose author data isn't
-                // in the MessageStore yet — no need for multiple staggered retries
-                // which were causing the cascading mutation storm.
-                const t = setTimeout(() => {
+            // Use requestAnimationFrame instead of setTimeout to apply on the very next frame
+            // with zero visible delay and no double-flicker from a second timer
+            if (!rafPending) {
+                rafPending = true;
+                requestAnimationFrame(() => {
+                    rafPending = false;
                     safeApply(() => applyBotRoleColor());
-                    const idx = retryTimers.indexOf(t);
-                    if (idx !== -1) retryTimers.splice(idx, 1);
-                }, 800);
-                retryTimers.push(t);
-            }, 100);
+                });
+            }
         });
 
         // Only observe childList (new nodes), NOT attributes or characterData.
         // This prevents our own style/dataset mutations from triggering the observer.
         observer.observe(document.body, { childList: true, subtree: true });
-        (this as any).debounceTimer = debounceTimer;
         (this as any).observer = observer;
     },
 
     stop() {
         if ((this as any).observer) {
             (this as any).observer.disconnect();
-        }
-        if ((this as any).debounceTimer) {
-            clearTimeout((this as any).debounceTimer);
-        }
-        for (const t of ((this as any).retryTimers ?? [])) {
-            clearTimeout(t);
         }
         resetAllBotColors();
     },
