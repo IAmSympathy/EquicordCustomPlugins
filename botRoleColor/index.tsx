@@ -38,7 +38,7 @@ const settings = definePluginSettings({
     glowIntensity: {
         type: OptionType.SLIDER,
         description: "Intensity of the glow effect (0-10)",
-        default: 1,
+        default: 0.5,
         markers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         stickToMarkers: false,
         onChange: () => {
@@ -594,12 +594,10 @@ export default definePlugin({
                     });
                     if (isOurOwnMutation) continue;
 
-                    // Only reset a message article if a bot embed or message content
-                    // was removed (real edit), not just any child change
+                    // Strategy 1: detect explicit removal of embed/content nodes (full replacement)
                     const hasRemovedContent = Array.from(mutation.removedNodes).some(n => {
                         if (n.nodeType !== Node.ELEMENT_NODE) return false;
                         const el = n as HTMLElement;
-                        // A real content replacement: embed article or message content div was removed
                         return el.matches('article[class*="embed"]') ||
                             el.matches('[class*="messageContent"]') ||
                             el.querySelector('article[class*="embed"]') !== null;
@@ -609,10 +607,32 @@ export default definePlugin({
                         let node: Element | null = mutation.target as Element;
                         while (node && node !== document.body) {
                             if (node.getAttribute("role") === "article") {
-                                const msgContent = node.querySelector("[data-vc-msg-applied]");
-                                const embedApplied = node.querySelector("[data-vc-embed-applied]");
-                                if (msgContent || embedApplied) {
-                                    articlesToReset.add(node as HTMLElement);
+                                articlesToReset.add(node as HTMLElement);
+                                break;
+                            }
+                            node = node.parentElement;
+                        }
+                    }
+
+                    // Strategy 2: detect in-place edits — mutation target is inside an already-
+                    // colored element (data-vc-msg-applied or data-vc-embed-applied).
+                    // Walk up to find the enclosing message article and schedule a reset.
+                    if (!hasRemovedContent) {
+                        let node: Element | null = mutation.target as Element;
+                        while (node && node !== document.body) {
+                            const h = node as HTMLElement;
+                            if (
+                                h.dataset.vcMsgApplied ||
+                                h.dataset.vcEmbedApplied
+                            ) {
+                                // Find the message article ancestor
+                                let articleNode: Element | null = node;
+                                while (articleNode && articleNode !== document.body) {
+                                    if (articleNode.getAttribute("role") === "article") {
+                                        articlesToReset.add(articleNode as HTMLElement);
+                                        break;
+                                    }
+                                    articleNode = articleNode.parentElement;
                                 }
                                 break;
                             }
