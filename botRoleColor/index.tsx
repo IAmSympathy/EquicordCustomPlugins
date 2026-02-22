@@ -62,6 +62,9 @@ const BOTS_WITH_BG = new Set(["1462959115528835092"]); // Netricsa
 // Discord MessageStore - initialized in start()
 let MessageStore: any = null;
 
+// Guard to prevent re-entrant observer calls triggered by our own DOM mutations
+let isApplying = false;
+
 function hexToRgb(hex: string): [number, number, number] | null {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result
@@ -269,7 +272,10 @@ function applyBotRoleColor() {
             if (!parsed) return;
             try {
                 const msg = MessageStore.getMessage?.(parsed.channelId, parsed.messageId);
-                if (!msg?.author?.bot) return; // Not a bot, skip
+                // If MessageStore doesn't have the message yet, skip WITHOUT marking as applied
+                // so that a future retry pass can try again.
+                if (!msg) return;
+                if (!msg.author?.bot) return; // Not a bot, skip
             } catch { return; }
         }
 
@@ -507,18 +513,140 @@ export default definePlugin({
 
         setTimeout(() => applyBotRoleColor(), 100);
 
+        // Track pending retries so we can clear them on stop()
+        const retryTimers: ReturnType<typeof setTimeout>[] = [];
+        (this as any).retryTimers = retryTimers;
+
+        /**
+         * Reset all plugin markers on a message article element and all its
+         * descendants so that the next applyBotRoleColor() pass re-processes it
+         * from scratch (needed when a bot edits its message).
+         */
+        function resetMessageElement(article: HTMLElement): void {
+            article.querySelectorAll("[data-vc-colored]").forEach((el: Element) => {
+                const h = el as HTMLElement;
+                h.style.color = "";
+                h.style.textShadow = "";
+                delete h.dataset.vcColored;
+            });
+            article.querySelectorAll("[data-vc-embed-applied], article[data-vc-embed-applied]").forEach((el: Element) => {
+                const embed = el as HTMLElement;
+                embed.querySelector("[data-vc-bg-overlay]")?.remove();
+                embed.style.position = "";
+                delete embed.dataset.vcBgApplied;
+                delete embed.dataset.vcEmbedApplied;
+                for (const child of Array.from(embed.children)) {
+                    const c = child as HTMLElement;
+                    c.style.position = "";
+                    c.style.zIndex = "";
+                }
+            });
+            if (article.dataset.vcEmbedApplied) {
+                article.querySelector("[data-vc-bg-overlay]")?.remove();
+                article.style.position = "";
+                delete article.dataset.vcBgApplied;
+                delete article.dataset.vcEmbedApplied;
+            }
+            article.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => {
+                delete (el as HTMLElement).dataset.vcMsgApplied;
+            });
+            if (article.dataset.vcMsgApplied) {
+                delete article.dataset.vcMsgApplied;
+            }
+            article.querySelectorAll("[data-original-color]").forEach((el: Element) => {
+                const h = el as HTMLElement;
+                h.style.color = h.dataset.originalColor || "";
+                delete h.dataset.originalColor;
+            });
+        }
+
+        /**
+         * Safe wrapper: disable observer, run work, re-enable observer.
+         */
+        function safeApply(fn: () => void): void {
+            if (isApplying) return;
+            isApplying = true;
+            try {
+                fn();
+            } finally {
+                isApplying = false;
+            }
+        }
+
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-        const observer = new MutationObserver(() => {
-            // Apply immediately for already-rendered content
-            applyBotRoleColor();
-            // Also schedule a delayed pass to catch embeds that render after the message
+
+        const observer = new MutationObserver((mutations: MutationRecord[]) => {
+            // Ignore mutations caused by our own style/dataset changes
+            if (isApplying) return;
+
+            // Only react if real Discord nodes were added (not just attribute changes)
+            let hasNewNodes = false;
+            const articlesToReset = new Set<HTMLElement>();
+
+            for (const mutation of mutations) {
+                // Ignore attribute mutations (those are from us changing style/dataset)
+                if (mutation.type === "attributes") continue;
+
+                if (mutation.addedNodes.length > 0) {
+                    hasNewNodes = true;
+                }
+
+                // For childList mutations on already-processed messages, reset them
+                // BUT ignore mutations caused by our own overlay/marker insertions
+                if (mutation.type === "childList") {
+                    // If all added/removed nodes are our own plugin nodes, skip
+                    const allNodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
+                    const isOurOwnMutation = allNodes.length > 0 && allNodes.every(n => {
+                        if (n.nodeType !== Node.ELEMENT_NODE) return true;
+                        const el = n as HTMLElement;
+                        return el.hasAttribute("data-vc-bg-overlay");
+                    });
+                    if (isOurOwnMutation) continue;
+
+                    let node: Element | null = mutation.target as Element;
+                    while (node && node !== document.body) {
+                        if (node.getAttribute("role") === "article") {
+                            const msgContent = node.querySelector("[data-vc-msg-applied]");
+                            const embedApplied = node.querySelector("[data-vc-embed-applied]");
+                            if (msgContent || embedApplied) {
+                                articlesToReset.add(node as HTMLElement);
+                            }
+                            break;
+                        }
+                        node = node.parentElement;
+                    }
+                }
+            }
+
+            if (!hasNewNodes && articlesToReset.size === 0) return;
+
+            // Reset articles that need re-processing (e.g. bot edited message)
+            if (articlesToReset.size > 0) {
+                safeApply(() => {
+                    articlesToReset.forEach(article => resetMessageElement(article));
+                });
+            }
+
+            // Debounce the apply pass
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-                applyBotRoleColor();
                 debounceTimer = null;
-            }, 500);
+                safeApply(() => applyBotRoleColor());
+
+                // One single retry at 800ms for messages whose author data isn't
+                // in the MessageStore yet — no need for multiple staggered retries
+                // which were causing the cascading mutation storm.
+                const t = setTimeout(() => {
+                    safeApply(() => applyBotRoleColor());
+                    const idx = retryTimers.indexOf(t);
+                    if (idx !== -1) retryTimers.splice(idx, 1);
+                }, 800);
+                retryTimers.push(t);
+            }, 100);
         });
 
+        // Only observe childList (new nodes), NOT attributes or characterData.
+        // This prevents our own style/dataset mutations from triggering the observer.
         observer.observe(document.body, { childList: true, subtree: true });
         (this as any).debounceTimer = debounceTimer;
         (this as any).observer = observer;
@@ -530,6 +658,9 @@ export default definePlugin({
         }
         if ((this as any).debounceTimer) {
             clearTimeout((this as any).debounceTimer);
+        }
+        for (const t of ((this as any).retryTimers ?? [])) {
+            clearTimeout(t);
         }
         resetAllBotColors();
     },
