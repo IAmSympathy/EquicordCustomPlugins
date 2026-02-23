@@ -103,7 +103,7 @@ async function fetchLatestCommit(repoPath: string, branch: string): Promise<{ sh
     }
 }
 
-async function fetchCommitsSince(repoPath: string, baseSha: string, branch: string): Promise<{ sha: string; message: string; }[]> {
+async function fetchCommitsSince(repoPath: string, baseSha: string, branch: string): Promise<{ sha: string; message: string; date: string; }[]> {
     try {
         const response = await fetch(`https://api.github.com/repos/${repoPath}/compare/${baseSha}...${branch}`, {
             headers: {
@@ -117,10 +117,13 @@ async function fetchCommitsSince(repoPath: string, baseSha: string, branch: stri
         }
         const data = await response.json();
         return (data.commits as any[] ?? [])
-            .reverse() // du plus récent au plus ancien
+            .reverse()
             .map((c: any) => ({
                 sha: c.sha as string,
                 message: (c.commit?.message as string ?? "").split("\n")[0],
+                date: c.commit?.author?.date
+                    ? new Date(c.commit.author.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+                    : "Date inconnue",
             }));
     } catch (err) {
         logger.error("Erreur lors de la requête compare GitHub :", err);
@@ -253,44 +256,57 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
     // Récupérer tous les commits depuis le dernier SHA connu
     const commits = await fetchCommitsSince(repoPath, knownSha, branch || "main");
 
-    const repoDisplayName = repoPath.split("/")[1] || repoPath;
-
     showNotification({
         title: "🔌 Mise à jour des plugins custom disponible !",
-        body: `"${repoDisplayName}" — ${commits.length > 0 ? `${commits.length} nouveau${commits.length > 1 ? "x" : ""} commit${commits.length > 1 ? "s" : ""}` : "des mises à jour"}. Cliquez pour mettre à jour.`,
+        body: (commits.length > 0 ? `${commits.length} mise${commits.length > 1 ? "s" : ""} à jour` : "Nouvelle mise à jour") + "\nCliquez pour mettre à jour.",
         color: "var(--yellow-360)",
         permanent: true,
         noPersist: false,
         onClick: () => {
             Alerts.show({
                 title: "Mettre à jour les plugins custom ?",
-                body: (
-                    <div>
-                        <p style={{ marginBottom: "8px" }}>
-                            Changelogs :
-                        </p>
-                        <code style={{
-                            display: "block",
-                            padding: "8px 12px",
-                            borderRadius: "4px",
-                            background: "var(--background-secondary)",
-                            fontFamily: "var(--font-code)",
-                            fontSize: "13px",
-                            color: "var(--text-normal)",
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-word",
-                            maxHeight: "180px",
-                            overflowY: "auto",
-                        }}>
-                            {commits.length > 0
-                                ? commits.map(c => `${c.sha.slice(0, 7)}  ${c.message}`).join("\n")
-                                : latestSha.slice(0, 7)}
-                        </code>
-                        <p style={{ marginTop: "12px" }}>
-                            Cela lancera le script <strong>Install or Update Equicord.ps1</strong> qui fermera Discord, appliquera les mises à jour et relancera Discord.
-                        </p>
-                    </div>
-                ),
+                body: (() => {
+                        const grouped: Record<string, typeof commits> = {};
+                        for (const c of commits) {
+                            if (!grouped[c.date]) grouped[c.date] = [];
+                            grouped[c.date].push(c);
+                        }
+                        let counter = 1;
+                        return (
+                            <div>
+                                <p style={{ marginBottom: "8px" }}>Changelogs :</p>
+                                <div style={{
+                                    padding: "8px 12px",
+                                    borderRadius: "4px",
+                                    background: "var(--background-secondary)",
+                                    fontFamily: "var(--font-code)",
+                                    fontSize: "13px",
+                                    color: "var(--text-normal)",
+                                    maxHeight: "220px",
+                                    overflowY: "auto",
+                                }}>
+                                    {commits.length > 0
+                                        ? Object.entries(grouped).map(([date, cs]) => (
+                                            <div key={date} style={{ marginBottom: "10px" }}>
+                                                <strong style={{ color: "var(--header-secondary)", display: "block", marginBottom: "4px" }}>
+                                                    {date}
+                                                </strong>
+                                                {cs.map(c => (
+                                                    <div key={c.sha} style={{ paddingLeft: "12px", marginBottom: "2px" }}>
+                                                        {counter++}. {c.message}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))
+                                        : <span>{latestSha.slice(0, 7)}</span>
+                                    }
+                                </div>
+                                <p style={{ marginTop: "12px" }}>
+                                    Cela lancera le script <strong>Install or Update Equicord.ps1</strong> qui fermera Discord, appliquera les mises à jour et relancera Discord.
+                                </p>
+                            </div>
+                        );
+                    })(),
                 confirmText: "Mettre à jour",
                 cancelText: "Plus tard",
                 onConfirm: async () => {
