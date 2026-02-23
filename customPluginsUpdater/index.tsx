@@ -49,6 +49,12 @@ const settings = definePluginSettings({
         description: "Vérifier les mises à jour des plugins custom toutes les 30 minutes",
         default: true,
     },
+    localRepoPath: {
+        type: OptionType.STRING,
+        description: "Chemin local du repo de plugins cloné (ex: C:\\Users\\toi\\EquicordCustomPlugins). Laissez vide pour utiliser le DataStore.",
+        default: "",
+        placeholder: "C:\\Users\\toi\\EquicordCustomPlugins",
+    },
     resetStoredSha: {
         type: OptionType.COMPONENT,
         description: "Réinitialiser le commit mémorisé (force une nouvelle détection au prochain démarrage)",
@@ -231,33 +237,61 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
 
     logger.info(`Vérification des plugins custom : ${repoPath}@${branch || "main"}`);
 
+    // 1. Récupérer le SHA distant (dernier commit sur GitHub)
     const latest = await fetchLatestCommit(repoPath, branch || "main");
     if (!latest) return;
     const { sha: latestSha } = latest;
 
-    const knownSha = await DataStore.get(DATASTORE_KEY_PLUGINS) as string | undefined;
+    // 2. Récupérer le SHA local réel via git (HEAD du repo cloné sur le disque)
+    const localRepoPath = settings.store.localRepoPath?.trim();
+    let localSha: string | null = null;
 
-    if (!knownSha) {
-        logger.info(`Premier démarrage plugins, commit enregistré : ${latestSha.slice(0, 7)}`);
-        await DataStore.set(DATASTORE_KEY_PLUGINS, latestSha);
-        return;
+    if (localRepoPath) {
+        try {
+            localSha = await Native.getLocalPluginsHash(localRepoPath);
+            if (!localSha) logger.warn(`git rev-parse HEAD a échoué pour "${localRepoPath}"`);
+        } catch {
+            logger.warn("Native.getLocalPluginsHash non disponible.");
+        }
     }
 
-    if (latestSha === knownSha) {
-        logger.info("Plugins custom à jour.");
-        return;
+    if (localSha) {
+        // On a le vrai hash local — comparaison directe, toujours exacte après un pull
+        logger.info(`Hash local : ${localSha.slice(0, 7)}, hash distant : ${latestSha.slice(0, 7)}`);
+        if (localSha === latestSha) {
+            logger.info("Plugins custom à jour (comparaison git locale).");
+            // Mettre le DataStore à jour pour que le fallback soit cohérent
+            await DataStore.set(DATASTORE_KEY_PLUGINS, latestSha);
+            return;
+        }
+    } else {
+        // Fallback : comparaison via DataStore
+        const knownSha = await DataStore.get(DATASTORE_KEY_PLUGINS) as string | undefined;
+        if (!knownSha) {
+            logger.info(`Premier démarrage plugins, commit enregistré : ${latestSha.slice(0, 7)}`);
+            await DataStore.set(DATASTORE_KEY_PLUGINS, latestSha);
+            return;
+        }
+        if (latestSha === knownSha) {
+            logger.info("Plugins custom à jour (comparaison DataStore).");
+            return;
+        }
+        logger.info(`Mise à jour plugins custom (DataStore) ! ${knownSha.slice(0, 7)} → ${latestSha.slice(0, 7)}`);
     }
 
-    logger.info(`Mise à jour plugins custom ! ${knownSha.slice(0, 7)} → ${latestSha.slice(0, 7)}`);
+    logger.info(`Mise à jour plugins custom disponible ! local=${(localSha ?? "?").slice(0, 7)} → distant=${latestSha.slice(0, 7)}`);
 
     if (notifiedPluginsThisSession) return;
     notifiedPluginsThisSession = true;
 
-    // Récupérer tous les commits depuis le dernier SHA connu
-    const commits = await fetchCommitsSince(repoPath, knownSha, branch || "main");
+    // Récupérer tous les commits depuis le SHA local (ou DataStore si pas de git)
+    const baseSha = localSha ?? (await DataStore.get(DATASTORE_KEY_PLUGINS) as string | undefined) ?? latestSha;
+    const commits = localSha !== latestSha
+        ? await fetchCommitsSince(repoPath, baseSha, branch || "main")
+        : [];
 
     showNotification({
-        title: "🔌 Mise à jour des plugins custom disponible !",
+        title: "Mise à jour des plugins custom disponible !",
         body: (commits.length > 0 ? `${commits.length} mise${commits.length > 1 ? "s" : ""} à jour` : "Nouvelle mise à jour") + "\nCliquez pour mettre à jour.",
         color: "var(--yellow-360)",
         permanent: true,

@@ -4,10 +4,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { execFile as cpExecFile } from "child_process";
 import { spawn } from "child_process";
 import { IpcMainInvokeEvent } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
+import { promisify } from "util";
+
+const execFile = promisify(cpExecFile);
 
 // __dirname = dist/desktop/ (patcher.js est bundlé dans dist/desktop/)
 // dist/desktop/ -> dist/ -> Equicord/ : deux niveaux suffisent
@@ -43,3 +47,20 @@ export async function launchUpdateScript(_: IpcMainInvokeEvent): Promise<{ ok: b
         return { ok: false, error: String(err?.message ?? err) };
     }
 }
+
+/**
+ * Lit le git HEAD local du repo de plugins custom.
+ * Retourne null si le dossier n'est pas un repo git ou si git n'est pas disponible.
+ */
+export async function getLocalPluginsHash(
+    _: IpcMainInvokeEvent,
+    repoPath: string
+): Promise<string | null> {
+    try {
+        const res = await execFile("git", ["rev-parse", "HEAD"], { cwd: repoPath });
+        return res.stdout.trim() || null;
+    } catch {
+        return null;
+    }
+}
+
