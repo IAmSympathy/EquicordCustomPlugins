@@ -15,7 +15,7 @@ import { Alerts, showToast, Toasts } from "@webpack/common";
 
 const Native = VencordNative.pluginHelpers.CustomPluginsUpdater as PluginNative<typeof import("./native")>;
 
-const logger = new Logger("CustomPluginsUpdater", "#f0a500");
+const logger = new Logger("CustomPluginsUpdater", "#f0a501");
 
 const DATASTORE_KEY_PLUGINS = "CustomPluginsUpdater_lastKnownCommit";
 
