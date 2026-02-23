@@ -13,9 +13,6 @@ import { join } from "path";
 // dist/desktop/ -> dist/ -> Equicord/ : deux niveaux suffisent
 const EQUICORD_ROOT = join(__dirname, "..", "..");
 
-/**
- * Lance le script PowerShell "Install or Update Equicord.ps1" dans une nouvelle fenêtre.
- */
 export async function launchUpdateScript(_: IpcMainInvokeEvent): Promise<{ ok: boolean; error?: string; }> {
     const scriptPath = join(EQUICORD_ROOT, "Install or Update Equicord.ps1");
 
@@ -24,25 +21,25 @@ export async function launchUpdateScript(_: IpcMainInvokeEvent): Promise<{ ok: b
     }
 
     try {
-        // Lance dans une nouvelle fenêtre PowerShell visible pour que l'utilisateur voie la progression
-        spawn(
-            "powershell.exe",
+        // Ouvre une nouvelle fenêtre cmd qui lance PowerShell — visible, sans UAC
+        const child = spawn(
+            "cmd.exe",
             [
+                "/c", "start", "powershell.exe",
                 "-NoProfile",
                 "-ExecutionPolicy", "Bypass",
-                "-Command",
-                `Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"' -Verb RunAs`,
+                "-File", scriptPath,
             ],
             {
                 detached: true,
                 stdio: "ignore",
+                cwd: EQUICORD_ROOT,
             }
-        ).unref();
+        );
+        child.unref();
 
         return { ok: true };
     } catch (err: any) {
         return { ok: false, error: String(err?.message ?? err) };
     }
 }
-
-
