@@ -267,7 +267,7 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
                 body: (
                     <div>
                         <p style={{ marginBottom: "8px" }}>
-                            1Changelogs :
+                            Changelogs :
                         </p>
                         <code style={{
                             display: "block",
