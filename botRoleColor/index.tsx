@@ -8,10 +8,19 @@ import { definePluginSettings } from "@api/Settings";
 import { Devs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByProps } from "@webpack";
+import { GuildStore } from "@webpack/common";
 
 import backgroundImageB64 from "file://./assets/background.png?base64";
+import bannerB64 from "file://./assets/banner.png?base64";
 
 const BACKGROUND_DATA_URL = backgroundImageB64 ? `data:image/png;base64,${backgroundImageB64}` : "";
+
+// Bannière hardcodée pour le serveur The Not So Serious Lands
+const HARDCODED_GUILD_ID = "827364829567647774";
+const BANNER_DATA_URL = bannerB64 ? `data:image/png;base64,${bannerB64}` : "";
+let bannerStyleElement: HTMLStyleElement | null = null;
+let originalGetGuild: any;
+let originalGetGuilds: any;
 
 const settings = definePluginSettings({
     colorIntensity: {
@@ -48,10 +57,76 @@ const settings = definePluginSettings({
     }
 });
 
+function applyHardcodedBanner() {
+    if (!BANNER_DATA_URL) return;
+    if (bannerStyleElement) bannerStyleElement.remove();
+    bannerStyleElement = document.createElement("style");
+    bannerStyleElement.id = "notSoSeriousCord-hardcoded-banner";
+    bannerStyleElement.textContent = `
+        img[src*="/banners/${HARDCODED_GUILD_ID}/"],
+        img[src*="custom_banner_${HARDCODED_GUILD_ID}"] {
+            content: url(${BANNER_DATA_URL}) !important;
+            object-fit: cover !important;
+            object-position: center center !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        [style*="/banners/${HARDCODED_GUILD_ID}/"] {
+            background-image: url(${BANNER_DATA_URL}) !important;
+            background-size: cover !important;
+            background-position: center center !important;
+            background-repeat: no-repeat !important;
+        }
+    `;
+    document.head.appendChild(bannerStyleElement);
+}
+
+function removeHardcodedBanner() {
+    if (bannerStyleElement) {
+        bannerStyleElement.remove();
+        bannerStyleElement = null;
+    }
+    if (originalGetGuild && GuildStore?.getGuild) {
+        GuildStore.getGuild = originalGetGuild;
+        originalGetGuild = null;
+    }
+    if (originalGetGuilds && GuildStore?.getGuilds) {
+        GuildStore.getGuilds = originalGetGuilds;
+        originalGetGuilds = null;
+    }
+}
+
+function patchGuildStoreForBanner() {
+    if (!BANNER_DATA_URL) return;
+    if (GuildStore?.getGuild) {
+        originalGetGuild = GuildStore.getGuild;
+        GuildStore.getGuild = function (guildId: string) {
+            const guild = originalGetGuild.call(this, guildId);
+            if (guild && guildId === HARDCODED_GUILD_ID) {
+                guild.banner = guild.banner || "custom_banner_" + guildId;
+                guild.features?.add("BANNER");
+            }
+            return guild;
+        };
+    }
+    if (GuildStore?.getGuilds) {
+        originalGetGuilds = GuildStore.getGuilds;
+        GuildStore.getGuilds = function () {
+            const guilds = originalGetGuilds.call(this);
+            const target = guilds[HARDCODED_GUILD_ID];
+            if (target) {
+                target.banner = target.banner || "custom_banner_" + HARDCODED_GUILD_ID;
+                target.features?.add("BANNER");
+            }
+            return guilds;
+        };
+    }
+}
+
 // Bot ID to color mapping
 const BOT_COLORS: Record<string, string> = {
-    "1462959115528835092": "#1f9ccd",
-    "1473424972046270608": "#56fd0d",
+    "1462959115528835092": "#1f9ccd", // Netricsa
+    "1473424972046270608": "#56fd0d", // Klodovik
 };
 
 // Bot IDs that should have glow effect (embed text only)
@@ -511,6 +586,10 @@ export default definePlugin({
             console.log("[botRoleColor] Background image embedded and ready.");
         }
 
+        // Appliquer la bannière hardcodée pour le serveur Netricsa
+        applyHardcodedBanner();
+        patchGuildStoreForBanner();
+
         setTimeout(() => applyBotRoleColor(), 100);
 
         /**
@@ -673,5 +752,6 @@ export default definePlugin({
             (this as any).observer.disconnect();
         }
         resetAllBotColors();
+        removeHardcodedBanner();
     },
 });
