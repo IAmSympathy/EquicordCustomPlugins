@@ -9,9 +9,9 @@ import { IpcMainInvokeEvent } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
 
-// Chemin vers la racine du repo Equicord (deux niveaux au dessus de dist/)
-// __dirname pointe vers dist/ en production (après build)
-const EQUICORD_ROOT = join(__dirname, "..", "..", "..");
+// __dirname = dist/desktop/ (patcher.js est bundlé dans dist/desktop/)
+// dist/desktop/ -> dist/ -> Equicord/ : deux niveaux suffisent
+const EQUICORD_ROOT = join(__dirname, "..", "..");
 
 /**
  * Lance le script PowerShell "Install or Update Equicord.ps1" dans une nouvelle fenêtre.
@@ -45,30 +45,4 @@ export async function launchUpdateScript(_: IpcMainInvokeEvent): Promise<{ ok: b
     }
 }
 
-/**
- * Retourne le git hash courant du repo Equicord local (HEAD),
- * ainsi que le remote origin URL.
- */
-export async function getLocalGitInfo(_: IpcMainInvokeEvent): Promise<{ hash: string | null; remote: string | null; }> {
-    const { execFile } = await import("child_process");
-    const { promisify } = await import("util");
-    const execFileAsync = promisify(execFile);
 
-    try {
-        const [hashRes, remoteRes] = await Promise.all([
-            execFileAsync("git", ["rev-parse", "HEAD"], { cwd: EQUICORD_ROOT }),
-            execFileAsync("git", ["remote", "get-url", "origin"], { cwd: EQUICORD_ROOT }),
-        ]);
-
-        const hash = hashRes.stdout.trim() || null;
-        const remote = remoteRes.stdout
-            .trim()
-            .replace(/git@(.+):/, "https://$1/")
-            .replace(/\.git$/, "")
-            || null;
-
-        return { hash, remote };
-    } catch {
-        return { hash: null, remote: null };
-    }
-}
