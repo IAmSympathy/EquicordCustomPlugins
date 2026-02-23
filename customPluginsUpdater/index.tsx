@@ -80,7 +80,7 @@ function extractRepoPath(url: string): string | null {
     }
 }
 
-async function fetchLatestCommitSha(repoPath: string, branch: string): Promise<string | null> {
+async function fetchLatestCommit(repoPath: string, branch: string): Promise<{ sha: string; message: string; } | null> {
     try {
         const response = await fetch(`https://api.github.com/repos/${repoPath}/commits/${branch}`, {
             headers: {
@@ -93,10 +93,38 @@ async function fetchLatestCommitSha(repoPath: string, branch: string): Promise<s
             return null;
         }
         const data = await response.json();
-        return data.sha ?? null;
+        return {
+            sha: data.sha ?? "",
+            message: data.commit?.message?.split("\n")[0] ?? "",
+        };
     } catch (err) {
         logger.error("Erreur lors de la requête à l'API GitHub :", err);
         return null;
+    }
+}
+
+async function fetchCommitsSince(repoPath: string, baseSha: string, branch: string): Promise<{ sha: string; message: string; }[]> {
+    try {
+        const response = await fetch(`https://api.github.com/repos/${repoPath}/compare/${baseSha}...${branch}`, {
+            headers: {
+                Accept: "application/vnd.github+json",
+                "User-Agent": "Equicord-CustomPluginsUpdater",
+            },
+        });
+        if (!response.ok) {
+            logger.error(`GitHub API compare a retourné ${response.status}`);
+            return [];
+        }
+        const data = await response.json();
+        return (data.commits as any[] ?? [])
+            .reverse() // du plus récent au plus ancien
+            .map((c: any) => ({
+                sha: c.sha as string,
+                message: (c.commit?.message as string ?? "").split("\n")[0],
+            }));
+    } catch (err) {
+        logger.error("Erreur lors de la requête compare GitHub :", err);
+        return [];
     }
 }
 
@@ -200,8 +228,9 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
 
     logger.info(`Vérification des plugins custom : ${repoPath}@${branch || "main"}`);
 
-    const latestSha = await fetchLatestCommitSha(repoPath, branch || "main");
-    if (!latestSha) return;
+    const latest = await fetchLatestCommit(repoPath, branch || "main");
+    if (!latest) return;
+    const { sha: latestSha } = latest;
 
     const knownSha = await DataStore.get(DATASTORE_KEY_PLUGINS) as string | undefined;
 
@@ -221,24 +250,50 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
     if (notifiedPluginsThisSession) return;
     notifiedPluginsThisSession = true;
 
-    // On ne sauvegarde le nouveau SHA qu'une fois que l'utilisateur a lancé la mise à jour,
-    // pour continuer à notifier aux prochains démarrages si ce n'est pas encore fait.
+    // Récupérer tous les commits depuis le dernier SHA connu
+    const commits = await fetchCommitsSince(repoPath, knownSha, branch || "main");
+
     const repoDisplayName = repoPath.split("/")[1] || repoPath;
 
     showNotification({
         title: "🔌 Mise à jour des plugins custom disponible !",
-        body: `"${repoDisplayName}" a reçu des mises à jour. Cliquez pour mettre à jour.`,
+        body: `"${repoDisplayName}" — ${commits.length > 0 ? `${commits.length} nouveau${commits.length > 1 ? "x" : ""} commit${commits.length > 1 ? "s" : ""}` : "des mises à jour"}. Cliquez pour mettre à jour.`,
         color: "var(--yellow-360)",
         permanent: true,
         noPersist: false,
         onClick: () => {
             Alerts.show({
                 title: "Mettre à jour les plugins custom ?",
-                body: "Cela lancera le script 'Install or Update Equicord.ps1' qui fermera Discord, appliquera les mises à jour et relancera Discord.",
+                body: (
+                    <div>
+                        <p style={{ marginBottom: "8px" }}>
+                            1Changelogs :
+                        </p>
+                        <code style={{
+                            display: "block",
+                            padding: "8px 12px",
+                            borderRadius: "4px",
+                            background: "var(--background-secondary)",
+                            fontFamily: "var(--font-code)",
+                            fontSize: "13px",
+                            color: "var(--text-normal)",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            maxHeight: "180px",
+                            overflowY: "auto",
+                        }}>
+                            {commits.length > 0
+                                ? commits.map(c => `${c.sha.slice(0, 7)}  ${c.message}`).join("\n")
+                                : latestSha.slice(0, 7)}
+                        </code>
+                        <p style={{ marginTop: "12px" }}>
+                            Cela lancera le script <strong>Install or Update Equicord.ps1</strong> qui fermera Discord, appliquera les mises à jour et relancera Discord.
+                        </p>
+                    </div>
+                ),
                 confirmText: "Mettre à jour",
                 cancelText: "Plus tard",
                 onConfirm: async () => {
-                    // Sauvegarder le SHA seulement maintenant que l'utilisateur met à jour
                     await DataStore.set(DATASTORE_KEY_PLUGINS, latestSha);
                     await runUpdateScript();
                 },
