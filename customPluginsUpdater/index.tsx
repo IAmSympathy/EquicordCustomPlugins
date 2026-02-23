@@ -9,9 +9,8 @@ import { noticesQueue } from "@api/Notices";
 import { showNotification } from "@api/Notifications";
 import { definePluginSettings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
-import { PluginNative } from "@utils/types";
-import definePlugin, { OptionType } from "@utils/types";
-import { Alerts, showToast, Toasts } from "@webpack/common";
+import definePlugin, { OptionType, PluginNative } from "@utils/types";
+import { Alerts, Button, React, showToast, Toasts } from "@webpack/common";
 
 const Native = VencordNative.pluginHelpers.CustomPluginsUpdater as PluginNative<typeof import("./native")>;
 
@@ -49,6 +48,19 @@ const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Vérifier les mises à jour des plugins custom toutes les 30 minutes",
         default: true,
+    },
+    resetStoredSha: {
+        type: OptionType.COMPONENT,
+        description: "Réinitialiser le commit mémorisé (force une nouvelle détection au prochain démarrage)",
+        component: () => (
+            <Button onClick={async () => {
+                await DataStore.del(DATASTORE_KEY_PLUGINS);
+                notifiedPluginsThisSession = false;
+                showToast("SHA réinitialisé. Redémarrez Discord pour re-détecter une éventuelle mise à jour.", Toasts.Type.SUCCESS);
+            }}>
+                Réinitialiser le SHA mémorisé
+            </Button>
+        ),
     },
 });
 
@@ -209,8 +221,8 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
     if (notifiedPluginsThisSession) return;
     notifiedPluginsThisSession = true;
 
-    await DataStore.set(DATASTORE_KEY_PLUGINS, latestSha);
-
+    // On ne sauvegarde le nouveau SHA qu'une fois que l'utilisateur a lancé la mise à jour,
+    // pour continuer à notifier aux prochains démarrages si ce n'est pas encore fait.
     const repoDisplayName = repoPath.split("/")[1] || repoPath;
 
     showNotification({
@@ -225,7 +237,11 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
                 body: "Cela lancera le script 'Install or Update Equicord.ps1' qui fermera Discord, appliquera les mises à jour et relancera Discord.",
                 confirmText: "Mettre à jour",
                 cancelText: "Plus tard",
-                onConfirm: runUpdateScript,
+                onConfirm: async () => {
+                    // Sauvegarder le SHA seulement maintenant que l'utilisateur met à jour
+                    await DataStore.set(DATASTORE_KEY_PLUGINS, latestSha);
+                    await runUpdateScript();
+                },
             });
         },
     });
@@ -268,4 +284,3 @@ export default definePlugin({
         }
     },
 });
-
