@@ -9,9 +9,10 @@ import { Devs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByProps } from "@webpack";
 import { GuildStore } from "@webpack/common";
-
 import backgroundImageB64 from "file://./assets/background.png?base64";
 import bannerB64 from "file://./assets/banner.png?base64";
+
+import { applyGradientToNames, registerHardcodedRoleColors, RoleColorData, unregisterHardcodedRoleColors } from "../fakeServerBoost";
 
 const BACKGROUND_DATA_URL = backgroundImageB64 ? `data:image/png;base64,${backgroundImageB64}` : "";
 
@@ -21,6 +22,70 @@ const BANNER_DATA_URL = bannerB64 ? `data:image/png;base64,${bannerB64}` : "";
 let bannerStyleElement: HTMLStyleElement | null = null;
 let originalGetGuild: any;
 let originalGetGuilds: any;
+
+// roleId → données de couleur à injecter
+const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
+    // Ugh-Zan
+    "829521404214640671": {
+        colorStrings: { primaryColor: "#de5313", secondaryColor: "#aa3701", tertiaryColor: undefined },
+        colors: { primary_color: 14570259, secondary_color: 11155201, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Simp (booster)
+    "883205136300802060": {
+        colorStrings: { primaryColor: "#ff5dd6", secondaryColor: "#ff9cbf", tertiaryColor: undefined },
+        colors: { primary_color: 16735702, secondary_color: 16751807, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Tah-Um
+    "1122751212299767929": {
+        colorStrings: { primaryColor: "#c51d22", secondaryColor: "#9c151a", tertiaryColor: undefined },
+        colors: { primary_color: 12918050, secondary_color: 10229018, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Happy Birthday 🥳
+    "1351232387111194725": {
+        colorStrings: { primaryColor: "#ff0095", secondaryColor: "#b40069", tertiaryColor: undefined },
+        colors: { primary_color: 16711829, secondary_color: 11796585, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Netricsa (bot)
+    "1462959644195684528": {
+        colorStrings: { primaryColor: "#2494db", secondaryColor: "#247d90", tertiaryColor: undefined },
+        colors: { primary_color: 2397403, secondary_color: 2391440, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Golden
+    "1469592407149514814": {
+        colorStrings: { primaryColor: "#bf9b30", secondaryColor: "#f7d774", tertiaryColor: undefined },
+        colors: { primary_color: 12557104, secondary_color: 16242548, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Silver
+    "1469593432233087008": {
+        colorStrings: { primaryColor: "#c0c0c0", secondaryColor: "#f2f2f2", tertiaryColor: undefined },
+        colors: { primary_color: 12632256, secondary_color: 15921906, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Bronze
+    "1469593737741992049": {
+        colorStrings: { primaryColor: "#a05822", secondaryColor: "#d08a4a", tertiaryColor: undefined },
+        colors: { primary_color: 10508322, secondary_color: 13666890, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Klodovik (bot)
+    "1473430517864075478": {
+        colorStrings: { primaryColor: "#56fd0d", secondaryColor: "#f1ee27", tertiaryColor: undefined },
+        colors: { primary_color: 5700877, secondary_color: 15855143, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Nexa 🎵 (bot)
+    "1475717569200783382": {
+        colorStrings: { primaryColor: "#a524db", secondaryColor: "#592490", tertiaryColor: undefined },
+        colors: { primary_color: 10822875, secondary_color: 5842064, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+};
 
 const settings = definePluginSettings({
     colorIntensity: {
@@ -57,6 +122,8 @@ const settings = definePluginSettings({
     }
 });
 
+// ── Bannière hardcodée ────────────────────────────────────────────────────────
+
 function applyHardcodedBanner() {
     if (!BANNER_DATA_URL) return;
     if (bannerStyleElement) bannerStyleElement.remove();
@@ -82,18 +149,10 @@ function applyHardcodedBanner() {
 }
 
 function removeHardcodedBanner() {
-    if (bannerStyleElement) {
-        bannerStyleElement.remove();
-        bannerStyleElement = null;
-    }
-    if (originalGetGuild && GuildStore?.getGuild) {
-        GuildStore.getGuild = originalGetGuild;
-        originalGetGuild = null;
-    }
-    if (originalGetGuilds && GuildStore?.getGuilds) {
-        GuildStore.getGuilds = originalGetGuilds;
-        originalGetGuilds = null;
-    }
+    bannerStyleElement?.remove();
+    bannerStyleElement = null;
+    if (originalGetGuild && GuildStore?.getGuild) { GuildStore.getGuild = originalGetGuild; originalGetGuild = null; }
+    if (originalGetGuilds && GuildStore?.getGuilds) { GuildStore.getGuilds = originalGetGuilds; originalGetGuilds = null; }
 }
 
 function patchGuildStoreForBanner() {
@@ -123,56 +182,31 @@ function patchGuildStoreForBanner() {
     }
 }
 
-// Bot ID to color mapping
+// ── Couleurs des messages de bots ─────────────────────────────────────────────
+
 const BOT_COLORS: Record<string, string> = {
     "1462959115528835092": "#1f9ccd", // Netricsa
     "1473424972046270608": "#56fd0d", // Klodovik
 };
+const BOTS_WITH_GLOW = new Set(["1462959115528835092"]);
+const BOTS_WITH_BG = new Set(["1462959115528835092"]);
 
-// Bot IDs that should have glow effect (embed text only)
-const BOTS_WITH_GLOW = new Set(["1462959115528835092"]); // Netricsa
-// Bot IDs that should have background image in embeds
-const BOTS_WITH_BG = new Set(["1462959115528835092"]); // Netricsa
-
-// Discord MessageStore - initialized in start()
 let MessageStore: any = null;
-
-// Guard to prevent re-entrant observer calls triggered by our own DOM mutations
 let isApplying = false;
 
 function hexToRgb(hex: string): [number, number, number] | null {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-        ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
-        : null;
+    return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : null;
 }
 
-function interpolateColor(
-    r1: number, g1: number, b1: number,
-    r2: number, g2: number, b2: number,
-    ratio: number,
-): [number, number, number] {
-    return [
-        Math.round(r1 + (r2 - r1) * ratio),
-        Math.round(g1 + (g2 - g1) * ratio),
-        Math.round(b1 + (b2 - b1) * ratio),
-    ];
+function interpolateColor(r1: number, g1: number, b1: number, r2: number, g2: number, b2: number, ratio: number): [number, number, number] {
+    return [Math.round(r1 + (r2 - r1) * ratio), Math.round(g1 + (g2 - g1) * ratio), Math.round(b1 + (b2 - b1) * ratio)];
 }
 
-/**
- * Returns true if this element is a mention (role/user) or is inside one.
- * Checks the element and up to 8 ancestors.
- */
 function isMentionElement(el: Element | null): boolean {
     let node: Element | null = el;
     for (let i = 0; i < 8 && node; i++) {
-        if (
-            node.classList.contains("mention") ||
-            node.classList.contains("interactive") ||
-            node.classList.contains("wrapper_f61d60") ||
-            (node.getAttribute("role") === "button" && node.classList.contains("interactive"))
-        ) return true;
-        // Also check by partial class name for role mentions
+        if (node.classList.contains("mention") || node.classList.contains("interactive") || node.classList.contains("wrapper_f61d60") || (node.getAttribute("role") === "button" && node.classList.contains("interactive"))) return true;
         for (const cls of Array.from(node.classList)) {
             if (cls.startsWith("roleMention") || cls.startsWith("userMention")) return true;
         }
@@ -181,128 +215,65 @@ function isMentionElement(el: Element | null): boolean {
     return false;
 }
 
-/**
- * Apply glow (white text-shadow) to an element.
- */
 function applyGlow(el: HTMLElement, intensity: number): void {
     if (!settings.store.enableGlow) return;
     const r = intensity * 2;
     el.style.textShadow = `0 0 ${r}px white, 0 0 ${r * 1.5}px white`;
 }
 
-/**
- * Returns true if this element directly contains text (has text node children).
- */
 function hasDirectTextContent(el: HTMLElement): boolean {
     for (const child of Array.from(el.childNodes)) {
-        if (child.nodeType === Node.TEXT_NODE && child.textContent && child.textContent.trim().length > 0) {
-            return true;
-        }
+        if (child.nodeType === Node.TEXT_NODE && child.textContent && child.textContent.trim().length > 0) return true;
     }
     return false;
 }
 
-/**
- * Recursively apply color (and optionally glow) to elements,
- * completely skipping mention elements and their descendants.
- * Glow is only applied to leaf text elements, never to containers,
- * to prevent CSS text-shadow inheritance from affecting mentions.
- */
-function colorizeNode(
-    node: Node,
-    r: number, g: number, b: number,
-    glow: boolean,
-    glowIntensity: number,
-): void {
+function colorizeNode(node: Node, r: number, g: number, b: number, glow: boolean, glowIntensity: number): void {
     if (node.nodeType === Node.TEXT_NODE) {
         const parent = node.parentElement;
         if (parent && !isMentionElement(parent) && !parent.dataset.vcColored) {
             parent.style.color = `rgb(${r}, ${g}, ${b})`;
-            // Apply glow only on direct text containers, never on mentions
             if (glow && !isMentionElement(parent)) applyGlow(parent, glowIntensity);
             parent.dataset.vcColored = "1";
         }
         return;
     }
-
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as HTMLElement;
-
-    // Never touch mentions or their children
     if (isMentionElement(el)) return;
-
-    // Skip links
     if (el.tagName === "A") return;
-
     if (!el.dataset.vcColored) {
         el.style.color = `rgb(${r}, ${g}, ${b})`;
-        // IMPORTANT: Only apply glow to leaves (elements with direct text), NOT to containers.
-        // Applying text-shadow to containers causes it to cascade into mention children via CSS.
-        if (glow && hasDirectTextContent(el) && !isMentionElement(el)) {
-            applyGlow(el, glowIntensity);
-        }
+        if (glow && hasDirectTextContent(el) && !isMentionElement(el)) applyGlow(el, glowIntensity);
         el.dataset.vcColored = "1";
     }
-
-    for (const child of Array.from(el.childNodes)) {
-        colorizeNode(child, r, g, b, glow, glowIntensity);
-    }
+    for (const child of Array.from(el.childNodes)) colorizeNode(child, r, g, b, glow, glowIntensity);
 }
 
-/**
- * Apply a low-opacity background image to an embed by inserting an overlay div.
- */
 function applyEmbedBackground(embed: HTMLElement): void {
-    if (!BACKGROUND_DATA_URL) return;
-    if (embed.dataset.vcBgApplied) return;
-
-    // brightness: 0-100 mapped to filter:brightness(0) to brightness(1)
-    const brightness = 1;
-
-    // Make embed a positioned container
+    if (!BACKGROUND_DATA_URL || embed.dataset.vcBgApplied) return;
     const pos = window.getComputedStyle(embed).position;
     if (pos === "static") embed.style.position = "relative";
-
-    // Create the background overlay div - full opacity, brightness controlled by filter
     const bg = document.createElement("div");
     bg.setAttribute("data-vc-bg-overlay", "1");
     bg.style.cssText = [
-        "position: absolute",
-        "inset: 0",
+        "position: absolute", "inset: 0",
         `background-image: url("${BACKGROUND_DATA_URL}")`,
-        "background-size: cover",
-        "background-position: center",
-        "background-repeat: no-repeat",
-        `filter: brightness(${brightness})`,
-        "pointer-events: none",
-        "z-index: 0",
-        "border-radius: inherit",
+        "background-size: cover", "background-position: center", "background-repeat: no-repeat",
+        "filter: brightness(1)", "pointer-events: none", "z-index: 0", "border-radius: inherit",
     ].join(";");
-
     embed.insertBefore(bg, embed.firstChild);
-
-    // Lift all non-overlay direct children above the bg
     for (const child of Array.from(embed.children)) {
         if (child === bg) continue;
         const c = child as HTMLElement;
         if (!c.style.position || c.style.position === "static") c.style.position = "relative";
         if (!c.style.zIndex) c.style.zIndex = "1";
     }
-
     embed.dataset.vcBgApplied = "1";
 }
 
-/**
- * Extract channelId and messageId from a Discord message wrapper ID.
- * Supports both formats:
- *   "chat-messages-{channelId}-{messageId}"
- *   "chat-messages___chat-messages-{channelId}-{messageId}"
- */
 function parseMessageId(wrapperId: string): { channelId: string; messageId: string; } | null {
-    // Normalise: take everything after the last "___" if present
     const normalized = wrapperId.includes("___") ? wrapperId.split("___").pop()! : wrapperId;
-    // Expected: "chat-messages-{channelId}-{messageId}"
-    // channelId and messageId are snowflakes (pure digits, 17-20 chars)
     const match = normalized.match(/^chat-messages-(\d+)-(\d+)$/);
     if (!match) return null;
     return { channelId: match[1], messageId: match[2] };
@@ -312,54 +283,35 @@ function getMessageAuthorId(wrapperId: string): string | null {
     if (!MessageStore) return null;
     const parsed = parseMessageId(wrapperId);
     if (!parsed) return null;
-    try {
-        const msg = MessageStore.getMessage?.(parsed.channelId, parsed.messageId);
-        return msg?.author?.id ?? null;
-    } catch { return null; }
+    try { return MessageStore.getMessage?.(parsed.channelId, parsed.messageId)?.author?.id ?? null; } catch { return null; }
 }
 
 function applyBotRoleColor() {
-    const allMessages = document.querySelectorAll('[class*="cozy"][class*="wrapper"]');
-
-    allMessages.forEach((messageWrapper: Element) => {
+    document.querySelectorAll('[class*="cozy"][class*="wrapper"]').forEach((messageWrapper: Element) => {
         const header = messageWrapper.querySelector('[class*="header"]');
         const botTag = header?.querySelector('[class*="botTag"]');
-
         const wrapperId = (messageWrapper as HTMLElement).id ?? "";
 
-        // Primary: MessageStore (works for both first and grouped messages)
         let userId: string | null = getMessageAuthorId(wrapperId);
-
-        // Fallback: avatar URL (only present on first message of a group)
         if (!userId) {
-            const avatar = messageWrapper.querySelector('img[class*="avatar"]');
-            const match = avatar?.getAttribute("src")?.match(/\/avatars\/(\d+)\//);
+            const match = messageWrapper.querySelector('img[class*="avatar"]')?.getAttribute("src")?.match(/\/avatars\/(\d+)\//);
             if (match) userId = match[1];
         }
-
         if (!userId || !BOT_COLORS[userId]) return;
 
-        // For grouped messages (no visible botTag), verify via MessageStore that it's a bot.
-        // If we only found userId via avatar without a botTag, skip non-confirmed messages.
         if (!botTag) {
             if (!MessageStore) return;
             const parsed = parseMessageId(wrapperId);
             if (!parsed) return;
             try {
                 const msg = MessageStore.getMessage?.(parsed.channelId, parsed.messageId);
-                // If MessageStore doesn't have the message yet, skip WITHOUT marking as applied
-                // so that a future retry pass can try again.
-                if (!msg) return;
-                if (!msg.author?.bot) return; // Not a bot, skip
+                if (!msg || !msg.author?.bot) return;
             } catch { return; }
         }
 
         const username = header?.querySelector('[class*="username"]') as HTMLElement | null;
-        const messageContent = messageWrapper.querySelector(
-            '[class*="messageContent"]:not([class*="repliedTextContent"])'
-        ) as HTMLElement | null;
-        if (!messageContent) return;
-        if (messageContent.dataset.vcMsgApplied) return;
+        const messageContent = messageWrapper.querySelector('[class*="messageContent"]:not([class*="repliedTextContent"])') as HTMLElement | null;
+        if (!messageContent || messageContent.dataset.vcMsgApplied) return;
 
         const rgb = hexToRgb(BOT_COLORS[userId]);
         if (!rgb) return;
@@ -369,196 +321,111 @@ function applyBotRoleColor() {
         const shouldBg = BOTS_WITH_BG.has(userId);
         const intensity = settings.store.colorIntensity / 100;
         const { glowIntensity } = settings.store;
-
         const [newR, newG, newB] = interpolateColor(220, 221, 222, roleR, roleG, roleB, intensity);
 
-        // Username: full role color, no glow (only on first message of a group)
         if (username && !username.dataset.originalColor) {
             username.dataset.originalColor = username.style.color || "";
             username.style.color = `rgb(${roleR}, ${roleG}, ${roleB})`;
         }
 
-        // Message content text: colored, no glow
         messageContent.dataset.vcMsgApplied = "1";
-        for (const child of Array.from(messageContent.childNodes)) {
-            colorizeNode(child, newR, newG, newB, false, 0);
-        }
+        for (const child of Array.from(messageContent.childNodes)) colorizeNode(child, newR, newG, newB, false, 0);
 
-        // Embeds: colored + glow + background image
-        const embeds = messageWrapper.querySelectorAll('article[class*="embed"]');
-        embeds.forEach((embedEl: Element) => {
+        messageWrapper.querySelectorAll('article[class*="embed"]').forEach((embedEl: Element) => {
             const embed = embedEl as HTMLElement;
             if (embed.dataset.vcEmbedApplied) return;
-
-            if (shouldBg && BACKGROUND_DATA_URL) {
-                applyEmbedBackground(embed);
-            }
-
-            for (const child of Array.from(embed.childNodes)) {
-                colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
-            }
-
+            if (shouldBg && BACKGROUND_DATA_URL) applyEmbedBackground(embed);
+            for (const child of Array.from(embed.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
             embed.dataset.vcEmbedApplied = "1";
         });
     });
-
     applyBotRoleColorToReplies();
     applyToOrphanEmbeds();
+    applyGradientToNames();
 }
 
-/**
- * Second pass: find all article[embed] not yet processed and try to resolve
- * the bot author. We ONLY look inside the direct message container (role="article")
- * of the embed — never in sibling or neighbouring messages.
- */
 function applyToOrphanEmbeds() {
-    const orphans = document.querySelectorAll('article[class*="embed"]:not([data-vc-embed-applied])');
-
-    orphans.forEach((embedEl: Element) => {
+    document.querySelectorAll('article[class*="embed"]:not([data-vc-embed-applied])').forEach((embedEl: Element) => {
         const embed = embedEl as HTMLElement;
-
-        // Find the enclosing message article (role="article") — this is the strict boundary.
         const messageArticle = embed.closest('[role="article"]') as HTMLElement | null;
-        if (!messageArticle) return;
-
-        // Must have a botTag inside this same message
-        const botTag = messageArticle.querySelector('[class*="botTag"]');
-        if (!botTag) return;
+        if (!messageArticle || !messageArticle.querySelector('[class*="botTag"]')) return;
 
         let userId: string | null = null;
-
-        // Strategy 1: MessageStore via data-list-item-id (works for grouped messages too)
         if (MessageStore) {
-            const listItemId = messageArticle.getAttribute("data-list-item-id") ?? "";
-            const parsed = parseMessageId(listItemId);
-            if (parsed) {
-                try {
-                    const msg = MessageStore.getMessage?.(parsed.channelId, parsed.messageId);
-                    if (msg?.author) userId = msg.author.id;
-                } catch { /* ignore */ }
-            }
-        }
-
-        // Strategy 2: MessageStore via id walking up
-        if (!userId && MessageStore) {
-            let node: Element | null = messageArticle;
-            while (node && node !== document.body) {
-                const parsed = parseMessageId((node as HTMLElement).id ?? "");
+            for (let node: Element | null = messageArticle; node && node !== document.body; node = node.parentElement) {
+                const parsed = parseMessageId((node as HTMLElement).getAttribute("data-list-item-id") ?? (node as HTMLElement).id ?? "");
                 if (parsed) {
-                    try {
-                        const msg = MessageStore.getMessage?.(parsed.channelId, parsed.messageId);
-                        if (msg?.author) { userId = msg.author.id; break; }
-                    } catch { /* ignore */ }
+                    try { const msg = MessageStore.getMessage?.(parsed.channelId, parsed.messageId); if (msg?.author) { userId = msg.author.id; break; } } catch { /* ignore */ }
                 }
-                node = node.parentElement;
             }
         }
-
-        // Strategy 3: avatar URL (only present on first message of a group)
         if (!userId) {
-            const avatarEl = messageArticle.querySelector('img[class*="avatar"]');
-            if (avatarEl) {
-                const match = avatarEl.getAttribute("src")?.match(/\/avatars\/(\d+)\//);
-                if (match) userId = match[1];
-            }
+            const match = messageArticle.querySelector('img[class*="avatar"]')?.getAttribute("src")?.match(/\/avatars\/(\d+)\//);
+            if (match) userId = match[1];
         }
-
         if (!userId || !BOT_COLORS[userId]) return;
 
         const rgb = hexToRgb(BOT_COLORS[userId]);
         if (!rgb) return;
-
         const [roleR, roleG, roleB] = rgb;
         const shouldGlow = BOTS_WITH_GLOW.has(userId);
         const shouldBg = BOTS_WITH_BG.has(userId);
         const intensity = settings.store.colorIntensity / 100;
         const { glowIntensity } = settings.store;
         const [newR, newG, newB] = interpolateColor(220, 221, 222, roleR, roleG, roleB, intensity);
-
-        if (shouldBg && BACKGROUND_DATA_URL) {
-            applyEmbedBackground(embed);
-        }
-
-        for (const child of Array.from(embed.childNodes)) {
-            colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
-        }
-
+        if (shouldBg && BACKGROUND_DATA_URL) applyEmbedBackground(embed);
+        for (const child of Array.from(embed.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
         embed.dataset.vcEmbedApplied = "1";
     });
 }
 
 function applyBotRoleColorToReplies() {
-    const repliedMessages = document.querySelectorAll('[class*="repliedMessage"]');
-    repliedMessages.forEach((repliedWrapper: Element) => {
+    document.querySelectorAll('[class*="repliedMessage"]').forEach((repliedWrapper: Element) => {
         const el = repliedWrapper as HTMLElement;
-        if (el.dataset.vcReplyApplied) return;
-
-        const botTag = repliedWrapper.querySelector('[class*="botTag"]');
-        if (!botTag) return;
+        if (el.dataset.vcReplyApplied || !repliedWrapper.querySelector('[class*="botTag"]')) return;
 
         const username = repliedWrapper.querySelector('[class*="username"]') as HTMLElement | null;
         const repliedText = repliedWrapper.querySelector('[class*="repliedTextContent"]') as HTMLElement | null;
         if (!username || !repliedText) return;
 
-        let userId: string | null = null;
-        const avatar = repliedWrapper.querySelector('img[class*="avatar"]');
-        const match = avatar?.getAttribute("src")?.match(/\/avatars\/(\d+)\//);
-        if (match) userId = match[1];
-
+        const match = repliedWrapper.querySelector('img[class*="avatar"]')?.getAttribute("src")?.match(/\/avatars\/(\d+)\//);
+        const userId = match?.[1];
         if (!userId || !BOT_COLORS[userId]) return;
 
         const rgb = hexToRgb(BOT_COLORS[userId]);
         if (!rgb) return;
-
         const [roleR, roleG, roleB] = rgb;
         const intensity = settings.store.colorIntensity / 100;
         const [newR, newG, newB] = interpolateColor(220, 221, 222, roleR, roleG, roleB, intensity);
 
-        if (!username.dataset.originalColor) {
-            username.dataset.originalColor = username.style.color || "";
-        }
+        if (!username.dataset.originalColor) username.dataset.originalColor = username.style.color || "";
         username.style.color = `rgb(${roleR}, ${roleG}, ${roleB})`;
         repliedText.style.color = `rgb(${newR}, ${newG}, ${newB})`;
-
         el.dataset.vcReplyApplied = "1";
     });
 }
 
 function resetAllBotColors(): void {
-    // Reset all elements we colored
     document.querySelectorAll("[data-vc-colored]").forEach((el: Element) => {
         const h = el as HTMLElement;
         h.style.color = "";
         h.style.textShadow = "";
         delete h.dataset.vcColored;
     });
-
-    // Reset embed background overlays
     document.querySelectorAll("[data-vc-embed-applied]").forEach((el: Element) => {
         const embed = el as HTMLElement;
         embed.querySelector("[data-vc-bg-overlay]")?.remove();
         embed.style.position = "";
         delete embed.dataset.vcBgApplied;
         delete embed.dataset.vcEmbedApplied;
-        // Reset z-index on direct children
         for (const child of Array.from(embed.children)) {
             const c = child as HTMLElement;
             c.style.position = "";
             c.style.zIndex = "";
         }
     });
-
-    // Reset message content markers
-    document.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => {
-        delete (el as HTMLElement).dataset.vcMsgApplied;
-    });
-
-    // Reset replied markers
-    document.querySelectorAll("[data-vc-reply-applied]").forEach((el: Element) => {
-        delete (el as HTMLElement).dataset.vcReplyApplied;
-    });
-
-    // Restore original username colors
+    document.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcMsgApplied; });
+    document.querySelectorAll("[data-vc-reply-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcReplyApplied; });
     document.querySelectorAll("[data-original-color]").forEach((el: Element) => {
         const h = el as HTMLElement;
         h.style.color = h.dataset.originalColor || "";
@@ -568,149 +435,79 @@ function resetAllBotColors(): void {
 
 export default definePlugin({
     name: "The Not So Serious Cord",
-    description:
-        "Apply custom colors to specific bots' messages and names with configurable intensity",
+    description: "Apply custom colors to specific bots' messages and names with configurable intensity",
     authors: [Devs.IAmSympathy],
+    dependencies: ["Fake Server Boost Level 2"],
     settings,
 
     start() {
-        try {
-            MessageStore = findByProps("getMessages", "getMessage");
-        } catch (e) {
-            console.warn("[botRoleColor] Could not find MessageStore", e);
-        }
+        try { MessageStore = findByProps("getMessages", "getMessage"); }
+        catch (e) { console.warn("[botRoleColor] Could not find MessageStore", e); }
 
-        if (!BACKGROUND_DATA_URL) {
-            console.warn("[botRoleColor] No background image embedded. Place background.png in the assets folder and rebuild.");
-        } else {
-            console.log("[botRoleColor] Background image embedded and ready.");
-        }
-
-        // Appliquer la bannière hardcodée pour le serveur Netricsa
         applyHardcodedBanner();
         patchGuildStoreForBanner();
+        registerHardcodedRoleColors(HARDCODED_ROLE_COLORS);
+        // Le rgbToGradient est reconstruit dans fakeServerBoost via rebuildRgbIndex() appelé par registerHardcodedRoleColors
+        // On déclenche un premier passage DOM après que React ait eu le temps de rendre les noms
+        setTimeout(() => applyGradientToNames(), 200);
 
         setTimeout(() => applyBotRoleColor(), 100);
 
-        /**
-         * Reset all plugin markers on a message article element and all its
-         * descendants so that the next applyBotRoleColor() pass re-processes it
-         * from scratch (needed when a bot edits its message).
-         */
         function resetMessageElement(article: HTMLElement): void {
             article.querySelectorAll("[data-vc-colored]").forEach((el: Element) => {
-                const h = el as HTMLElement;
-                h.style.color = "";
-                h.style.textShadow = "";
-                delete h.dataset.vcColored;
+                const h = el as HTMLElement; h.style.color = ""; h.style.textShadow = ""; delete h.dataset.vcColored;
             });
             article.querySelectorAll("[data-vc-embed-applied], article[data-vc-embed-applied]").forEach((el: Element) => {
                 const embed = el as HTMLElement;
                 embed.querySelector("[data-vc-bg-overlay]")?.remove();
-                embed.style.position = "";
-                delete embed.dataset.vcBgApplied;
-                delete embed.dataset.vcEmbedApplied;
-                for (const child of Array.from(embed.children)) {
-                    const c = child as HTMLElement;
-                    c.style.position = "";
-                    c.style.zIndex = "";
-                }
+                embed.style.position = ""; delete embed.dataset.vcBgApplied; delete embed.dataset.vcEmbedApplied;
+                for (const child of Array.from(embed.children)) { const c = child as HTMLElement; c.style.position = ""; c.style.zIndex = ""; }
             });
-            if (article.dataset.vcEmbedApplied) {
-                article.querySelector("[data-vc-bg-overlay]")?.remove();
-                article.style.position = "";
-                delete article.dataset.vcBgApplied;
-                delete article.dataset.vcEmbedApplied;
-            }
-            article.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => {
-                delete (el as HTMLElement).dataset.vcMsgApplied;
-            });
-            if (article.dataset.vcMsgApplied) {
-                delete article.dataset.vcMsgApplied;
-            }
-            article.querySelectorAll("[data-original-color]").forEach((el: Element) => {
-                const h = el as HTMLElement;
-                h.style.color = h.dataset.originalColor || "";
-                delete h.dataset.originalColor;
-            });
+            if (article.dataset.vcEmbedApplied) { article.querySelector("[data-vc-bg-overlay]")?.remove(); article.style.position = ""; delete article.dataset.vcBgApplied; delete article.dataset.vcEmbedApplied; }
+            article.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcMsgApplied; });
+            if (article.dataset.vcMsgApplied) delete article.dataset.vcMsgApplied;
+            article.querySelectorAll("[data-original-color]").forEach((el: Element) => { const h = el as HTMLElement; h.style.color = h.dataset.originalColor || ""; delete h.dataset.originalColor; });
         }
 
-        /**
-         * Safe wrapper: disable observer, run work, re-enable observer.
-         */
         function safeApply(fn: () => void): void {
             if (isApplying) return;
             isApplying = true;
-            try {
-                fn();
-            } finally {
-                isApplying = false;
-            }
+            try { fn(); } finally { isApplying = false; }
         }
 
         let rafPending = false;
-
         const observer = new MutationObserver((mutations: MutationRecord[]) => {
-            // Ignore mutations caused by our own style/dataset changes
             if (isApplying) return;
-
             let hasNewNodes = false;
             const articlesToReset = new Set<HTMLElement>();
 
             for (const mutation of mutations) {
                 if (mutation.type === "attributes") continue;
-
-                if (mutation.addedNodes.length > 0) {
-                    hasNewNodes = true;
-                }
-
+                if (mutation.type !== "childList") continue;
+                if (mutation.addedNodes.length > 0) hasNewNodes = true;
                 if (mutation.type === "childList") {
-                    // Skip mutations that are only our own overlay nodes
                     const allNodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
-                    const isOurOwnMutation = allNodes.length > 0 && allNodes.every(n => {
-                        if (n.nodeType !== Node.ELEMENT_NODE) return true;
-                        return (n as HTMLElement).hasAttribute("data-vc-bg-overlay");
-                    });
-                    if (isOurOwnMutation) continue;
+                    if (allNodes.length > 0 && allNodes.every(n => n.nodeType !== Node.ELEMENT_NODE || (n as HTMLElement).hasAttribute("data-vc-bg-overlay"))) continue;
 
-                    // Strategy 1: detect explicit removal of embed/content nodes (full replacement)
                     const hasRemovedContent = Array.from(mutation.removedNodes).some(n => {
                         if (n.nodeType !== Node.ELEMENT_NODE) return false;
                         const el = n as HTMLElement;
-                        return el.matches('article[class*="embed"]') ||
-                            el.matches('[class*="messageContent"]') ||
-                            el.querySelector('article[class*="embed"]') !== null;
+                        return el.matches('article[class*="embed"]') || el.matches('[class*="messageContent"]') || el.querySelector('article[class*="embed"]') !== null;
                     });
 
+                    let node: Element | null = mutation.target as Element;
                     if (hasRemovedContent) {
-                        let node: Element | null = mutation.target as Element;
                         while (node && node !== document.body) {
-                            if (node.getAttribute("role") === "article") {
-                                articlesToReset.add(node as HTMLElement);
-                                break;
-                            }
+                            if (node.getAttribute("role") === "article") { articlesToReset.add(node as HTMLElement); break; }
                             node = node.parentElement;
                         }
-                    }
-
-                    // Strategy 2: detect in-place edits — mutation target is inside an already-
-                    // colored element (data-vc-msg-applied or data-vc-embed-applied).
-                    // Walk up to find the enclosing message article and schedule a reset.
-                    if (!hasRemovedContent) {
-                        let node: Element | null = mutation.target as Element;
+                    } else {
                         while (node && node !== document.body) {
                             const h = node as HTMLElement;
-                            if (
-                                h.dataset.vcMsgApplied ||
-                                h.dataset.vcEmbedApplied
-                            ) {
-                                // Find the message article ancestor
+                            if (h.dataset.vcMsgApplied || h.dataset.vcEmbedApplied) {
                                 let articleNode: Element | null = node;
                                 while (articleNode && articleNode !== document.body) {
-                                    if (articleNode.getAttribute("role") === "article") {
-                                        articlesToReset.add(articleNode as HTMLElement);
-                                        break;
-                                    }
+                                    if (articleNode.getAttribute("role") === "article") { articlesToReset.add(articleNode as HTMLElement); break; }
                                     articleNode = articleNode.parentElement;
                                 }
                                 break;
@@ -722,36 +519,18 @@ export default definePlugin({
             }
 
             if (!hasNewNodes && articlesToReset.size === 0) return;
-
-            // Reset articles that need re-processing synchronously before the apply
-            if (articlesToReset.size > 0) {
-                safeApply(() => {
-                    articlesToReset.forEach(article => resetMessageElement(article));
-                });
-            }
-
-            // Use requestAnimationFrame instead of setTimeout to apply on the very next frame
-            // with zero visible delay and no double-flicker from a second timer
-            if (!rafPending) {
-                rafPending = true;
-                requestAnimationFrame(() => {
-                    rafPending = false;
-                    safeApply(() => applyBotRoleColor());
-                });
-            }
+            if (articlesToReset.size > 0) safeApply(() => { articlesToReset.forEach(article => resetMessageElement(article)); });
+            if (!rafPending) { rafPending = true; requestAnimationFrame(() => { rafPending = false; safeApply(() => applyBotRoleColor()); }); }
         });
 
-        // Only observe childList (new nodes), NOT attributes or characterData.
-        // This prevents our own style/dataset mutations from triggering the observer.
         observer.observe(document.body, { childList: true, subtree: true });
         (this as any).observer = observer;
     },
 
     stop() {
-        if ((this as any).observer) {
-            (this as any).observer.disconnect();
-        }
+        (this as any).observer?.disconnect();
         resetAllBotColors();
         removeHardcodedBanner();
+        unregisterHardcodedRoleColors(Object.keys(HARDCODED_ROLE_COLORS));
     },
 });
