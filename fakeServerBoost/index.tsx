@@ -401,7 +401,15 @@ export function applyRoleIcons() {
         if (!ariaHidden.dataset.fsbCatChecked) {
             ariaHidden.dataset.fsbCatChecked = currentRoleId;
             if (!ariaHidden.querySelector("[data-fsb-role-icon]")) {
-                injectCategoryRoleIcon(ariaHidden, currentRoleId);
+                // Ne pas injecter si Discord a déjà rendu une icône de rôle native
+                // dans le membersGroup parent (cas des threads / forums)
+                const parentMembersGroup = ariaHidden.closest<HTMLElement>('[class*="membersGroup"]');
+                const nativeIcon = parentMembersGroup?.querySelector<HTMLElement>(
+                    'img[class*="roleIcon"]:not([data-fsb-role-icon])'
+                );
+                if (!nativeIcon) {
+                    injectCategoryRoleIcon(ariaHidden, currentRoleId);
+                }
             }
         }
 
