@@ -268,14 +268,28 @@ function colorizeNode(node: Node, r: number, g: number, b: number, glow: boolean
     for (const child of Array.from(el.childNodes)) colorizeNode(child, r, g, b, glow, glowIntensity);
 }
 
-function applyEmbedBackground(embed: HTMLElement): void {
+function applyComponentV2Background(compV2: HTMLElement): void {
+    if (!BACKGROUND_DATA_URL) return;
+    // Le conteneur visuel avec la barre de couleur gauche
+    const card = (compV2.querySelector('[class*="withAccentColor"]') as HTMLElement | null)
+        ?? (compV2.firstElementChild as HTMLElement | null)
+        ?? compV2;
+    applyEmbedBackground(card, true);
+}
+
+function applyEmbedBackground(embed: HTMLElement, preserveLeftBorder = false): void {
     if (!BACKGROUND_DATA_URL || embed.dataset.vcBgApplied) return;
     const pos = window.getComputedStyle(embed).position;
     if (pos === "static") embed.style.position = "relative";
+    // Si preserveLeftBorder, on mesure la largeur réelle du border-left pour ne pas le recouvrir
+    const leftOffset = preserveLeftBorder
+        ? (parseInt(window.getComputedStyle(embed).borderLeftWidth, 10) || 4) + "px"
+        : "0";
     const bg = document.createElement("div");
     bg.setAttribute("data-vc-bg-overlay", "1");
     bg.style.cssText = [
-        "position: absolute", "inset: 0",
+        "position: absolute",
+        "top: 0", "right: 0", "bottom: 0", `left: ${leftOffset}`,
         `background-image: url("${BACKGROUND_DATA_URL}")`,
         "background-size: cover", "background-position: center", "background-repeat: no-repeat",
         "filter: brightness(1)", "pointer-events: none", "z-index: 0", "border-radius: inherit",
@@ -356,9 +370,18 @@ function applyBotRoleColor() {
             for (const child of Array.from(embed.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
             embed.dataset.vcEmbedApplied = "1";
         });
+
+        messageWrapper.querySelectorAll('[class*="isComponentsV2"]').forEach((compV2El: Element) => {
+            const compV2 = compV2El as HTMLElement;
+            if (compV2.dataset.vcCompV2Applied) return;
+            if (shouldBg && BACKGROUND_DATA_URL) applyComponentV2Background(compV2);
+            for (const child of Array.from(compV2.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
+            compV2.dataset.vcCompV2Applied = "1";
+        });
     });
     applyBotRoleColorToReplies();
     applyToOrphanEmbeds();
+    applyToOrphanComponentsV2();
     applyGradientToNames();
 }
 
@@ -394,6 +417,41 @@ function applyToOrphanEmbeds() {
         if (shouldBg && BACKGROUND_DATA_URL) applyEmbedBackground(embed);
         for (const child of Array.from(embed.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
         embed.dataset.vcEmbedApplied = "1";
+    });
+}
+
+function applyToOrphanComponentsV2() {
+    document.querySelectorAll('[class*="isComponentsV2"]:not([data-vc-comp-v2-applied])').forEach((compV2El: Element) => {
+        const compV2 = compV2El as HTMLElement;
+        const messageArticle = compV2.closest('[role="article"]') as HTMLElement | null;
+        if (!messageArticle || !messageArticle.querySelector('[class*="botTag"]')) return;
+
+        let userId: string | null = null;
+        if (MessageStore) {
+            for (let node: Element | null = messageArticle; node && node !== document.body; node = node.parentElement) {
+                const parsed = parseMessageId((node as HTMLElement).getAttribute("data-list-item-id") ?? (node as HTMLElement).id ?? "");
+                if (parsed) {
+                    try { const msg = MessageStore.getMessage?.(parsed.channelId, parsed.messageId); if (msg?.author) { userId = msg.author.id; break; } } catch { /* ignore */ }
+                }
+            }
+        }
+        if (!userId) {
+            const match = messageArticle.querySelector('img[class*="avatar"]')?.getAttribute("src")?.match(/\/avatars\/(\d+)\//);
+            if (match) userId = match[1];
+        }
+        if (!userId || !BOT_COLORS[userId]) return;
+
+        const rgb = hexToRgb(BOT_COLORS[userId]);
+        if (!rgb) return;
+        const [roleR, roleG, roleB] = rgb;
+        const shouldGlow = BOTS_WITH_GLOW.has(userId);
+        const shouldBg = BOTS_WITH_BG.has(userId);
+        const intensity = settings.store.colorIntensity / 100;
+        const { glowIntensity } = settings.store;
+        const [newR, newG, newB] = interpolateColor(220, 221, 222, roleR, roleG, roleB, intensity);
+        if (shouldBg && BACKGROUND_DATA_URL) applyComponentV2Background(compV2);
+        for (const child of Array.from(compV2.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
+        compV2.dataset.vcCompV2Applied = "1";
     });
 }
 
@@ -442,6 +500,20 @@ function resetAllBotColors(): void {
             c.style.zIndex = "";
         }
     });
+    document.querySelectorAll("[data-vc-comp-v2-applied]").forEach((el: Element) => {
+        const compV2 = el as HTMLElement;
+        // Le bg-overlay peut être sur un sous-élément (la card withAccentColor)
+        const cardWithBg = (compV2.querySelector("[data-vc-bg-applied]") as HTMLElement | null) ?? compV2;
+        cardWithBg.querySelector("[data-vc-bg-overlay]")?.remove();
+        cardWithBg.style.position = "";
+        delete cardWithBg.dataset.vcBgApplied;
+        for (const child of Array.from(cardWithBg.children)) {
+            const c = child as HTMLElement;
+            c.style.position = "";
+            c.style.zIndex = "";
+        }
+        delete compV2.dataset.vcCompV2Applied;
+    });
     document.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcMsgApplied; });
     document.querySelectorAll("[data-vc-reply-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcReplyApplied; });
     document.querySelectorAll("[data-original-color]").forEach((el: Element) => {
@@ -482,6 +554,20 @@ export default definePlugin({
                 for (const child of Array.from(embed.children)) { const c = child as HTMLElement; c.style.position = ""; c.style.zIndex = ""; }
             });
             if (article.dataset.vcEmbedApplied) { article.querySelector("[data-vc-bg-overlay]")?.remove(); article.style.position = ""; delete article.dataset.vcBgApplied; delete article.dataset.vcEmbedApplied; }
+            article.querySelectorAll("[data-vc-comp-v2-applied]").forEach((el: Element) => {
+                const compV2 = el as HTMLElement;
+                const cardWithBg = (compV2.querySelector("[data-vc-bg-applied]") as HTMLElement | null) ?? compV2;
+                cardWithBg.querySelector("[data-vc-bg-overlay]")?.remove();
+                cardWithBg.style.position = ""; delete cardWithBg.dataset.vcBgApplied;
+                for (const child of Array.from(cardWithBg.children)) { const c = child as HTMLElement; c.style.position = ""; c.style.zIndex = ""; }
+                delete compV2.dataset.vcCompV2Applied;
+            });
+            if (article.dataset.vcCompV2Applied) {
+                const cardWithBg = (article.querySelector("[data-vc-bg-applied]") as HTMLElement | null) ?? article;
+                cardWithBg.querySelector("[data-vc-bg-overlay]")?.remove();
+                cardWithBg.style.position = ""; delete cardWithBg.dataset.vcBgApplied;
+                delete article.dataset.vcCompV2Applied;
+            }
             article.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcMsgApplied; });
             if (article.dataset.vcMsgApplied) delete article.dataset.vcMsgApplied;
             article.querySelectorAll("[data-original-color]").forEach((el: Element) => { const h = el as HTMLElement; h.style.color = h.dataset.originalColor || ""; delete h.dataset.originalColor; });
@@ -510,7 +596,7 @@ export default definePlugin({
                     const hasRemovedContent = Array.from(mutation.removedNodes).some(n => {
                         if (n.nodeType !== Node.ELEMENT_NODE) return false;
                         const el = n as HTMLElement;
-                        return el.matches('article[class*="embed"]') || el.matches('[class*="messageContent"]') || el.querySelector('article[class*="embed"]') !== null;
+                        return el.matches('article[class*="embed"]') || el.matches('[class*="messageContent"]') || el.matches('[class*="isComponentsV2"]') || el.querySelector('article[class*="embed"]') !== null || el.querySelector('[class*="isComponentsV2"]') !== null;
                     });
 
                     let node: Element | null = mutation.target as Element;
@@ -522,7 +608,7 @@ export default definePlugin({
                     } else {
                         while (node && node !== document.body) {
                             const h = node as HTMLElement;
-                            if (h.dataset.vcMsgApplied || h.dataset.vcEmbedApplied) {
+                            if (h.dataset.vcMsgApplied || h.dataset.vcEmbedApplied || h.dataset.vcCompV2Applied) {
                                 let articleNode: Element | null = node;
                                 while (articleNode && articleNode !== document.body) {
                                     if (articleNode.getAttribute("role") === "article") { articlesToReset.add(articleNode as HTMLElement); break; }
