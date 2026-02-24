@@ -292,7 +292,8 @@ function applyEmbedBackground(embed: HTMLElement, preserveLeftBorder = false): v
         "top: 0", "right: 0", "bottom: 0", `left: ${leftOffset}`,
         `background-image: url("${BACKGROUND_DATA_URL}")`,
         "background-size: cover", "background-position: center", "background-repeat: no-repeat",
-        "filter: brightness(1)", "pointer-events: none", "z-index: 0", "border-radius: inherit",
+        "filter: brightness(1)", "pointer-events: none", "z-index: 0",
+        preserveLeftBorder ? "border-radius: 0 inherit inherit 0" : "border-radius: inherit",
     ].join(";");
     embed.insertBefore(bg, embed.firstChild);
     for (const child of Array.from(embed.children)) {
