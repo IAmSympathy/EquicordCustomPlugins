@@ -85,6 +85,24 @@ const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
         colors: { primary_color: 10822875, secondary_color: 5842064, tertiary_color: undefined },
         displayNameStyles: null,
     },
+    // Game Notifications
+    "1158221380622487552": {
+        colorStrings: { primaryColor: "#2494db", secondaryColor: "#247d90", tertiaryColor: undefined },
+        colors: { primary_color: 2397403, secondary_color: 2391440, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Products Notifications
+    "1475892428304290006": {
+        colorStrings: { primaryColor: "#2494db", secondaryColor: "#247d90", tertiaryColor: undefined },
+        colors: { primary_color: 2397403, secondary_color: 2391440, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // NPC
+    "829528687358509116": {
+        colorStrings: { primaryColor: "#00e7fe", secondaryColor: "#87f5ff", tertiaryColor: undefined },
+        colors: { primary_color: 2397403, secondary_color: 2391440, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
 };
 
 const settings = definePluginSettings({

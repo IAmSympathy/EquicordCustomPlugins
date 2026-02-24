@@ -15,7 +15,7 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { Devs } from "@utils/constants";
 import definePlugin from "@utils/types";
 import { findComponentByCodeLazy } from "@webpack";
-import { FluxDispatcher, GuildMemberStore, GuildRoleStore, GuildStore, SelectedGuildStore } from "@webpack/common";
+import { FluxDispatcher, GuildMemberStore, GuildRoleStore, GuildStore } from "@webpack/common";
 
 const RoleIcon = findComponentByCodeLazy("#{intl::ROLE_ICON_ALT_TEXT}");
 
@@ -285,7 +285,7 @@ function ensureGradientStyle() {
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
         }
 
-        /* ── Gradient mentions (texte wrappé, img préservée) ── */
+        /* ── Gradient mentions (texte wrappé dans span[data-fsb-mention-text]) ── */
         span[data-fsb-mention-text] {
             background-image: linear-gradient(to right,
                 var(--custom-gradient-color-1),
@@ -296,10 +296,16 @@ function ensureGradientStyle() {
             background-clip: text !important;
             -webkit-text-fill-color: transparent !important;
             background-size: 200px auto !important;
+        }
+        /* Hover : animation du texte */
+        span[data-fsb-mention]:hover span[data-fsb-mention-text] {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        }
+        /* Glow sur le span racine entier (inclut l'icône) */
+        span[data-fsb-mention] {
             transition: filter 0.15s ease;
         }
-        span[data-fsb-gradient]:hover span[data-fsb-mention-text] {
-            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        span[data-fsb-mention]:hover {
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
         }
     `;
@@ -364,20 +370,42 @@ function applyGradientToGenericEl(el: HTMLElement, g: GradientInfo) {
     }
 }
 
-export function applyGradientToNames() {
-    if (rgbToGradient.size === 0) return;
-    ensureGradientStyle();
-
-    // 0. Icônes de rôle dans les catégories de la liste des membres — indépendant du gradient
+export function applyRoleIcons() {
+    // 0. Icônes de rôle dans les catégories de la liste des membres
     document.querySelectorAll<HTMLElement>(
-        '[class*="membersGroup"] [aria-hidden="true"]:not([data-fsb-cat-checked])'
+        '[class*="membersGroup"] [aria-hidden="true"]'
     ).forEach(ariaHidden => {
-        ariaHidden.dataset.fsbCatChecked = "1";
-        if (!ariaHidden.querySelector("[data-fsb-role-icon]")) {
-            injectCategoryRoleIcon(ariaHidden);
+        // Toujours recalculer le roleId courant à chaque passage
+        // (la liste est virtualisée : un même nœud DOM peut changer de catégorie)
+        const currentRoleId = getCategoryRoleId(ariaHidden);
+
+        // Si le roleId est inconnu (nœud pas encore prêt), ne rien faire :
+        // le MutationObserver relancera applyRoleIcons quand le DOM sera stable
+        if (currentRoleId === null) return;
+
+        const storedRoleId = ariaHidden.dataset.fsbCatChecked;
+        const existingIcon = ariaHidden.querySelector<HTMLImageElement>("[data-fsb-role-icon]");
+        const existingIconRoleId = existingIcon?.dataset.fsbRoleIconId ?? null;
+
+        // Si le roleId a changé (recyclage de nœud) ou si l'icône présente ne correspond pas :
+        // retirer l'ancienne icône et forcer une ré-injection
+        const roleChanged = storedRoleId !== undefined && storedRoleId !== currentRoleId;
+        const iconMismatch = existingIcon !== null && existingIconRoleId !== currentRoleId;
+
+        if (roleChanged || iconMismatch) {
+            ariaHidden.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
+            ariaHidden.style.removeProperty("--custom-gradient-color-1");
+            delete ariaHidden.dataset.fsbCatChecked;
         }
+
+        if (!ariaHidden.dataset.fsbCatChecked) {
+            ariaHidden.dataset.fsbCatChecked = currentRoleId;
+            if (!ariaHidden.querySelector("[data-fsb-role-icon]")) {
+                injectCategoryRoleIcon(ariaHidden, currentRoleId);
+            }
+        }
+
         // Propager --custom-gradient-color-1 depuis le span enfant vers ce div
-        // pour que le filter:drop-shadow sur ce div ait accès à la variable
         const gradSpan = ariaHidden.querySelector<HTMLElement>("[data-fsb-gradient]");
         if (gradSpan) {
             const c1 = gradSpan.style.getPropertyValue("--custom-gradient-color-1");
@@ -392,7 +420,6 @@ export function applyGradientToNames() {
         container.dataset.fsbVoiceChecked = "1";
         if (container.querySelector("[data-fsb-role-icon]")) return;
         injectVoiceRoleIcon(container);
-        // Propager la CSS var si le gradient est déjà appliqué (et marquer le parent)
         const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient]");
         if (gradDiv) {
             const c1 = gradDiv.style.getPropertyValue("--custom-gradient-color-1");
@@ -406,6 +433,14 @@ export function applyGradientToNames() {
             }
         }
     });
+}
+
+export function applyGradientToNames() {
+    // Toujours injecter les icônes, indépendamment des gradients
+    applyRoleIcons();
+
+    if (rgbToGradient.size === 0) return;
+    ensureGradientStyle();
 
     // 1. nameContainer avec color inline — liste des membres, popouts, etc.
     document.querySelectorAll<HTMLElement>(
@@ -512,54 +547,37 @@ function getCategoryRoleId(ariaHiddenContainer: HTMLElement): string | null {
         if (m) return m[1];
     }
 
-    // Stratégie 2 : React fiber — descendre depuis le nœud
+    // Stratégie 2 : React fiber — remonter uniquement via .return pour rester dans
+    // le sous-arbre de CE membersGroup (ne jamais aller vers sibling/child qui
+    // pourraient appartenir à une catégorie voisine)
     const fiberKey = Object.keys(membersGroupEl).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
     if (fiberKey) {
         let fiber = (membersGroupEl as any)[fiberKey];
-        for (let i = 0; i < 50 && fiber; i++) {
+        for (let i = 0; i < 40 && fiber; i++) {
             const props = fiber.memoizedProps ?? fiber.pendingProps;
             if (props) {
-                const id = props.id ?? props.roleId ?? props.groupId;
+                // Accepter uniquement id ou roleId (snowflake ≥ 10 chiffres)
+                // Ignorer groupId qui peut être générique ("online", "offline"...)
+                const id = props.id ?? props.roleId;
                 if (id && /^\d{10,}$/.test(String(id))) return String(id);
             }
-            fiber = fiber.child ?? fiber.sibling ?? fiber.return?.sibling ?? fiber.return?.return?.child;
+            fiber = fiber.return;
         }
-    }
-
-    // Stratégie 3 : chercher un rôle dont la couleur RGB correspond au style.color du span
-    // Priorité au guild actif pour éviter les mauvaises correspondances au démarrage
-    const coloredSpan = ariaHiddenContainer.querySelector<HTMLElement>("span[style*='color']");
-    if (coloredSpan?.style.color) {
-        const raw = coloredSpan.style.color;
-        try {
-            const activeGuildId = SelectedGuildStore.getGuildId();
-            const guildIds = activeGuildId
-                ? [activeGuildId, ...Object.keys(GuildStore.getGuilds()).filter(id => id !== activeGuildId)]
-                : Object.keys(GuildStore.getGuilds());
-            for (const guildId of guildIds) {
-                const roles = GuildRoleStore.getUnsafeMutableRoles(guildId);
-                if (!roles) continue;
-                for (const r of Object.values(roles) as any[]) {
-                    if (!r.icon) continue;
-                    const rRgb = r.colorString ? hexToRgbString(r.colorString) : null;
-                    if (rRgb === raw) return r.id;
-                }
-            }
-        } catch { /* ignore */ }
     }
 
     return null;
 }
 
-/** Injecte l'icône de rôle dans un div[aria-hidden] de catégorie de membres */
-function injectCategoryRoleIcon(ariaHiddenContainer: HTMLElement) {
-    const roleId = getCategoryRoleId(ariaHiddenContainer);
-    if (!roleId) return;
+/** Injecte l'icône de rôle dans un div[aria-hidden] de catégorie de membres.
+ *  roleId peut être passé directement pour éviter une double résolution. */
+function injectCategoryRoleIcon(ariaHiddenContainer: HTMLElement, roleId: string | null = null) {
+    const resolvedRoleId = roleId ?? getCategoryRoleId(ariaHiddenContainer);
+    if (!resolvedRoleId) return;
 
     let role: any = null;
     try {
         for (const guildId of Object.keys(GuildStore.getGuilds())) {
-            const r = GuildRoleStore.getRole(guildId, roleId);
+            const r = GuildRoleStore.getRole(guildId, resolvedRoleId);
             if (r) { role = r; break; }
         }
     } catch { /* ignore */ }
@@ -567,11 +585,12 @@ function injectCategoryRoleIcon(ariaHiddenContainer: HTMLElement) {
     if (!role?.icon) return;
 
     const cdnHost = (window as any).GLOBAL_ENV?.CDN_HOST ?? "cdn.discordapp.com";
-    const iconUrl = `https://${cdnHost}/role-icons/${roleId}/${role!.icon}.webp?size=20&quality=lossless`;
+    const iconUrl = `https://${cdnHost}/role-icons/${resolvedRoleId}/${role!.icon}.webp?size=20&quality=lossless`;
 
     const img = document.createElement("img");
     img.src = iconUrl;
     img.dataset.fsbRoleIcon = "1";
+    img.dataset.fsbRoleIconId = resolvedRoleId;
     img.style.cssText = "width:16px;height:16px;vertical-align:middle;margin-right:3px;border-radius:2px;";
 
     const { firstChild } = ariaHiddenContainer;
@@ -646,28 +665,39 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
     }
 }
 
-/** Pour les mentions qui contiennent une img : wrapper le nœud texte dans un span gradienté */
-function applyGradientToMention(el: HTMLElement, g: GradientInfo) {
-    if (el.dataset.fsbGradient) return;
-    el.dataset.fsbGradient = "1";
-    // Trouver le nœud texte direct ou dans vc-mentionAvatars-container
-    const container = el.querySelector<HTMLElement>(".vc-mentionAvatars-container") ?? el;
-    // Wrapper tous les nœuds texte (pas les img) dans un span gradienté
-    const nodesToWrap: Text[] = [];
-    container.childNodes.forEach(node => {
-        if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) {
-            nodesToWrap.push(node as Text);
-        }
-    });
-    for (const textNode of nodesToWrap) {
+/** Wrappe récursivement tous les nœuds texte non vides dans un span gradienté,
+ *  en sautant les branches img/svg et les wrappers déjà posés. */
+function wrapTextNodes(node: Node, g: GradientInfo) {
+    if (node.nodeType === Node.TEXT_NODE) {
+        if (!(node.textContent ?? "").trim()) return;
+        if ((node.parentElement as HTMLElement | null)?.dataset?.fsbMentionText) return;
         const wrapper = document.createElement("span");
         wrapper.dataset.fsbMentionText = "1";
         wrapper.style.setProperty("--custom-gradient-color-1", g.primary);
         wrapper.style.setProperty("--custom-gradient-color-2", g.secondary);
         wrapper.style.setProperty("--custom-gradient-color-3", g.tertiary);
-        textNode.parentNode!.insertBefore(wrapper, textNode);
-        wrapper.appendChild(textNode);
+        node.parentNode!.insertBefore(wrapper, node);
+        wrapper.appendChild(node);
+        return;
     }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as HTMLElement;
+    if (el.tagName === "IMG" || el.tagName === "SVG" || el.dataset.fsbMentionText) return;
+    // Snapshot des childNodes pour éviter les mutations pendant l'itération
+    for (const child of Array.from(el.childNodes)) {
+        wrapTextNodes(child, g);
+    }
+}
+
+/** Pour les mentions qui contiennent une img : wrapper le nœud texte dans un span gradienté */
+function applyGradientToMention(el: HTMLElement, g: GradientInfo) {
+    if (el.dataset.fsbMention) return; // déjà entièrement traité
+    el.dataset.fsbMention = "1";
+    el.dataset.fsbGradient = "1";
+    el.style.setProperty("--custom-gradient-color-1", g.primary);
+    el.style.setProperty("--custom-gradient-color-2", g.secondary);
+    el.style.setProperty("--custom-gradient-color-3", g.tertiary);
+    wrapTextNodes(el, g);
 }
 
 function resetGradients() {
@@ -692,6 +722,7 @@ function resetGradients() {
         el.style.removeProperty("--custom-gradient-color-2");
         el.style.removeProperty("--custom-gradient-color-3");
         delete el.dataset.fsbGradient;
+        delete el.dataset.fsbMention;
     });
     document.querySelectorAll<HTMLElement>("[data-fsb-header-vars]").forEach(el => {
         el.style.removeProperty("--custom-gradient-color-1");
@@ -736,26 +767,67 @@ function startDomObserver() {
                 } else if (!el.dataset.fsbGradient && (el.matches?.("span") || el.matches?.("strong") || el.matches?.("div"))) {
                     needsApply = true;
                 }
-            } else if (m.type === "childList" && m.addedNodes.length > 0) {
-                // Si un membersGroup est retiré+réajouté, réinitialiser son marqueur
+            } else if (m.type === "childList") {
                 m.removedNodes.forEach(n => {
                     if (n instanceof HTMLElement) {
+                        // Si un wrapper mention-text est retiré, réinitialiser le marqueur du parent
+                        if (n.dataset?.fsbMentionText) {
+                            let cur: HTMLElement | null = m.target as HTMLElement;
+                            while (cur) {
+                                if (cur.dataset?.fsbMention) {
+                                    delete cur.dataset.fsbMention;
+                                    delete cur.dataset.fsbGradient;
+                                    cur.style.removeProperty("--custom-gradient-color-1");
+                                    cur.style.removeProperty("--custom-gradient-color-2");
+                                    cur.style.removeProperty("--custom-gradient-color-3");
+                                    break;
+                                }
+                                cur = cur.parentElement;
+                            }
+                        }
                         n.querySelectorAll("[data-fsb-cat-checked]").forEach((el: Element) => {
                             delete (el as HTMLElement).dataset.fsbCatChecked;
                         });
-                        if ((n as HTMLElement).dataset?.fsbCatChecked) delete (n as HTMLElement).dataset.fsbCatChecked;
+                        if (n.dataset?.fsbCatChecked) delete n.dataset.fsbCatChecked;
                         n.querySelectorAll("[data-fsb-voice-checked]").forEach((el: Element) => {
                             delete (el as HTMLElement).dataset.fsbVoiceChecked;
                         });
-                        if ((n as HTMLElement).dataset?.fsbVoiceChecked) delete (n as HTMLElement).dataset.fsbVoiceChecked;
+                        if (n.dataset?.fsbVoiceChecked) delete n.dataset.fsbVoiceChecked;
                     }
                 });
-                needsApply = true;
+
+                // Si le contenu d'un [aria-hidden] de catégorie a changé (liste virtualisée :
+                // Discord mute le contenu sans retirer le nœud), forcer la ré-injection.
+                // IMPORTANT : ignorer les mutations causées par notre propre injection d'icône.
+                const targetEl = m.target as HTMLElement;
+                const isOurIconMutation = Array.from(m.addedNodes).some(
+                    n => n instanceof HTMLElement && n.dataset?.fsbRoleIcon
+                ) || Array.from(m.removedNodes).some(
+                    n => n instanceof HTMLElement && n.dataset?.fsbRoleIcon
+                );
+                if (!isOurIconMutation && targetEl instanceof HTMLElement) {
+                    const ariaParent = targetEl.closest?.('[class*="membersGroup"] [aria-hidden="true"]') as HTMLElement | null
+                        ?? (targetEl.getAttribute?.("aria-hidden") === "true" && targetEl.closest?.('[class*="membersGroup"]') ? targetEl : null);
+                    if (ariaParent?.dataset.fsbCatChecked) {
+                        // Retirer l'icône existante et le marqueur pour forcer une ré-évaluation
+                        ariaParent.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
+                        ariaParent.style.removeProperty("--custom-gradient-color-1");
+                        delete ariaParent.dataset.fsbCatChecked;
+                    }
+                }
+
+                if (m.addedNodes.length > 0) needsApply = true;
             }
         }
         if (needsApply && !rafPending) {
             rafPending = true;
-            requestAnimationFrame(() => { rafPending = false; applyGradientToNames(); });
+            requestAnimationFrame(() => {
+                rafPending = false;
+                applyGradientToNames();
+                // Retry après 300 ms pour les catégories dont le fiber n'était pas encore
+                // prêt au premier passage (nouveau nœud ajouté par la liste virtualisée)
+                setTimeout(() => applyRoleIcons(), 300);
+            });
         }
     });
     domObserver.observe(document.body, {
