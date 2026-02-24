@@ -292,7 +292,7 @@ async function checkForCustomPluginsUpdate(): Promise<void> {
 
     showNotification({
         title: "Mise à jour des plugins custom disponible !",
-        body: (commits.length > 0 ? `${commits.length} mise${commits.length > 1 ? "s" : ""} à jour` : "Nouvelle mise à jour") + "\nCliquez pour mettre à jour.",
+        body: (commits.length > 0 ? `${commits.length} mise${commits.length > 1 ? "s" : ""} à jour` : "Nouvelle mise à jour") + " - Cliquez pour mettre à jour.",
         color: "var(--yellow-360)",
         permanent: true,
         noPersist: false,
