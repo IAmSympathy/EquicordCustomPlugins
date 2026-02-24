@@ -535,37 +535,67 @@ export function applyGradientToNames() {
     });
 }
 
-/** Trouve le roleId d'une catégorie de membres via data-list-item-id ou React fiber */
+/** Extrait le texte visible d'un nœud [aria-hidden] de catégorie (sans compter les icônes injectées) */
+function getCategoryVisibleText(ariaHiddenContainer: HTMLElement): string {
+    // Cloner pour ne pas muter, retirer nos icônes injectées, récupérer le texte
+    const clone = ariaHiddenContainer.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("[data-fsb-role-icon]").forEach(el => el.remove());
+    return clone.textContent?.trim().toLowerCase() ?? "";
+}
+
+/** Trouve le roleId d'une catégorie de membres via data-list-item-id ou React fiber,
+ *  puis valide que le nom du rôle correspond au texte visible (détecte le recyclage de nœud). */
 function getCategoryRoleId(ariaHiddenContainer: HTMLElement): string | null {
     const membersGroupEl = ariaHiddenContainer.closest('[class*="membersGroup"]') as HTMLElement | null;
     if (!membersGroupEl) return null;
+
+    let candidateId: string | null = null;
 
     // Stratégie 1 : data-list-item-id (ex: "members-list-group-123456789")
     const listItemId = membersGroupEl.dataset.listItemId ?? membersGroupEl.getAttribute("data-list-item-id");
     if (listItemId) {
         const m = /(\d{10,})/.exec(listItemId);
-        if (m) return m[1];
+        if (m) candidateId = m[1];
     }
 
-    // Stratégie 2 : React fiber — remonter uniquement via .return pour rester dans
-    // le sous-arbre de CE membersGroup (ne jamais aller vers sibling/child qui
-    // pourraient appartenir à une catégorie voisine)
-    const fiberKey = Object.keys(membersGroupEl).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
-    if (fiberKey) {
-        let fiber = (membersGroupEl as any)[fiberKey];
-        for (let i = 0; i < 40 && fiber; i++) {
-            const props = fiber.memoizedProps ?? fiber.pendingProps;
-            if (props) {
-                // Accepter uniquement id ou roleId (snowflake ≥ 10 chiffres)
-                // Ignorer groupId qui peut être générique ("online", "offline"...)
-                const id = props.id ?? props.roleId;
-                if (id && /^\d{10,}$/.test(String(id))) return String(id);
+    // Stratégie 2 : React fiber — remonter uniquement via .return
+    if (!candidateId) {
+        const fiberKey = Object.keys(membersGroupEl).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+        if (fiberKey) {
+            let fiber = (membersGroupEl as any)[fiberKey];
+            for (let i = 0; i < 40 && fiber; i++) {
+                const props = fiber.memoizedProps ?? fiber.pendingProps;
+                if (props) {
+                    const id = props.id ?? props.roleId;
+                    if (id && /^\d{10,}$/.test(String(id))) { candidateId = String(id); break; }
+                }
+                fiber = fiber.return;
             }
-            fiber = fiber.return;
         }
     }
 
-    return null;
+    if (!candidateId) return null;
+
+    // Validation croisée : le nom du rôle doit correspondre au texte visible
+    // Si ce n'est pas le cas, le fiber n'est pas encore mis à jour (nœud recyclé)
+    // → retourner null pour forcer un retry plus tard
+    try {
+        const visibleText = getCategoryVisibleText(ariaHiddenContainer);
+        if (visibleText) {
+            let roleName: string | null = null;
+            for (const guildId of Object.keys(GuildStore.getGuilds())) {
+                const r = GuildRoleStore.getRole(guildId, candidateId);
+                if (r?.name) { roleName = r.name.toLowerCase(); break; }
+            }
+            // Si on a trouvé le nom du rôle et qu'il ne correspond pas au texte visible,
+            // le fiber pointe vers le mauvais rôle → on ne peut pas faire confiance
+            if (roleName && !visibleText.startsWith(roleName) && !visibleText.includes(roleName)) {
+                return null;
+            }
+        }
+    } catch { /* ignore — en cas d'erreur on fait confiance au candidateId */ }
+
+    return candidateId;
 }
 
 /** Injecte l'icône de rôle dans un div[aria-hidden] de catégorie de membres.
@@ -816,7 +846,7 @@ function startDomObserver() {
                     }
                 }
 
-                if (m.addedNodes.length > 0) needsApply = true;
+                if (m.addedNodes.length > 0 || m.removedNodes.length > 0) needsApply = true;
             }
         }
         if (needsApply && !rafPending) {
