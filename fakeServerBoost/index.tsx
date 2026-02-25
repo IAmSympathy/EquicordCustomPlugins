@@ -398,18 +398,22 @@ export function applyRoleIcons() {
             delete ariaHidden.dataset.fsbCatChecked;
         }
 
-        if (!ariaHidden.dataset.fsbCatChecked) {
+        // Vérifier si une icône native Discord existe dans le membersGroup hors de notre ariaHidden
+        const parentMembersGroup = ariaHidden.closest<HTMLElement>('[class*="membersGroup"]');
+        const nativeIconInGroup = parentMembersGroup
+            ? Array.from(parentMembersGroup.querySelectorAll<HTMLElement>('img[class*="roleIcon"]:not([data-fsb-role-icon])'))
+                  .some(img => !ariaHidden.contains(img))
+            : false;
+
+        if (nativeIconInGroup) {
+            // Une icône native Discord est présente hors de notre zone : retirer notre icône si elle existe
+            ariaHidden.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
+            // Marquer quand même pour que le gradient/CSS vars soient appliqués
+            ariaHidden.dataset.fsbCatChecked = currentRoleId;
+        } else if (!ariaHidden.dataset.fsbCatChecked) {
             ariaHidden.dataset.fsbCatChecked = currentRoleId;
             if (!ariaHidden.querySelector("[data-fsb-role-icon]")) {
-                // Ne pas injecter si Discord a déjà rendu une icône de rôle native
-                // dans le membersGroup parent (cas des threads / forums)
-                const parentMembersGroup = ariaHidden.closest<HTMLElement>('[class*="membersGroup"]');
-                const nativeIcon = parentMembersGroup?.querySelector<HTMLElement>(
-                    'img[class*="roleIcon"]:not([data-fsb-role-icon])'
-                );
-                if (!nativeIcon) {
-                    injectCategoryRoleIcon(ariaHidden, currentRoleId);
-                }
+                injectCategoryRoleIcon(ariaHidden, currentRoleId);
             }
         }
 
@@ -443,9 +447,37 @@ export function applyRoleIcons() {
     });
 }
 
+/** Déplace le span contenant l'icône de rôle avant le span du clan tag dans les headers de messages */
+function reorderRoleIconBeforeClanTag() {
+    // Cibler les headerText qui contiennent à la fois un clan tag et une icône de rôle
+    document.querySelectorAll<HTMLElement>('span[class*="headerText_"]:not([data-fsb-role-reordered])').forEach(headerText => {
+        // Chercher le span wrapper du clan tag (contient chipletContainerInner)
+        const clanTagSpan = Array.from(headerText.children).find(child =>
+            child.querySelector('[class*="chipletContainerInner"]')
+        ) as HTMLElement | undefined;
+        if (!clanTagSpan) return;
+
+        // Chercher le span wrapper de l'icône de rôle (contient img.roleIcon_)
+        const roleIconSpan = Array.from(headerText.children).find(child =>
+            child !== clanTagSpan && child.querySelector('img[class*="roleIcon"]')
+        ) as HTMLElement | undefined;
+        if (!roleIconSpan) return;
+
+        // Vérifier que l'icône est bien actuellement APRÈS le clan tag
+        const clanIdx = Array.from(headerText.children).indexOf(clanTagSpan);
+        const roleIdx = Array.from(headerText.children).indexOf(roleIconSpan);
+        if (roleIdx <= clanIdx) return; // déjà dans le bon ordre
+
+        // Insérer le roleIconSpan avant le clanTagSpan
+        headerText.insertBefore(roleIconSpan, clanTagSpan);
+        headerText.dataset.fsbRoleReordered = "1";
+    });
+}
+
 export function applyGradientToNames() {
     // Toujours injecter les icônes, indépendamment des gradients
     applyRoleIcons();
+    reorderRoleIconBeforeClanTag();
 
     if (rgbToGradient.size === 0) return;
     ensureGradientStyle();
@@ -774,6 +806,9 @@ function resetGradients() {
     document.querySelectorAll<HTMLElement>("[data-fsb-anchor-checked]").forEach(el => {
         delete el.dataset.fsbAnchorChecked;
     });
+    document.querySelectorAll<HTMLElement>("[data-fsb-role-reordered]").forEach(el => {
+        delete el.dataset.fsbRoleReordered;
+    });
     gradientStyleEl?.remove();
     gradientStyleEl = null;
 }
@@ -831,6 +866,10 @@ function startDomObserver() {
                             delete (el as HTMLElement).dataset.fsbVoiceChecked;
                         });
                         if (n.dataset?.fsbVoiceChecked) delete n.dataset.fsbVoiceChecked;
+                        n.querySelectorAll("[data-fsb-role-reordered]").forEach((el: Element) => {
+                            delete (el as HTMLElement).dataset.fsbRoleReordered;
+                        });
+                        if (n.dataset?.fsbRoleReordered) delete n.dataset.fsbRoleReordered;
                     }
                 });
 
@@ -843,6 +882,26 @@ function startDomObserver() {
                 ) || Array.from(m.removedNodes).some(
                     n => n instanceof HTMLElement && n.dataset?.fsbRoleIcon
                 );
+
+                // Détecter si une icône native Discord vient d'être ajoutée dans un membersGroup
+                // (cas threads/forums où Discord rend son propre roleIcon après notre injection)
+                if (!isOurIconMutation) {
+                    const nativeIconAdded = Array.from(m.addedNodes).some(n => {
+                        if (!(n instanceof HTMLElement)) return false;
+                        if (n.matches?.('img[class*="roleIcon"]') && !n.dataset?.fsbRoleIcon) return true;
+                        return n.querySelector?.('img[class*="roleIcon"]:not([data-fsb-role-icon])') !== null;
+                    });
+                    if (nativeIconAdded) {
+                        const membersGroup = targetEl.closest?.('[class*="membersGroup"]') as HTMLElement | null;
+                        if (membersGroup) {
+                            const ariaHiddenEl = membersGroup.querySelector<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]');
+                            if (ariaHiddenEl) {
+                                ariaHiddenEl.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
+                            }
+                        }
+                    }
+                }
+
                 if (!isOurIconMutation && targetEl instanceof HTMLElement) {
                     const ariaParent = targetEl.closest?.('[class*="membersGroup"] [aria-hidden="true"]') as HTMLElement | null
                         ?? (targetEl.getAttribute?.("aria-hidden") === "true" && targetEl.closest?.('[class*="membersGroup"]') ? targetEl : null);
