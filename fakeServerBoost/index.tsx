@@ -67,6 +67,76 @@ const hardcodedRoleColors: Record<string, RoleColorData> = {};
 // Permet de retrouver les données même quand colorRoleId est absent
 const colorStringIndex: Record<string, RoleColorData> = {};
 
+// ── API d'effets custom ────────────────────────────────────────────────────────
+
+/**
+ * Décrit un effet visuel custom (animations, glow spécifique à un rôle…).
+ * Enregistré par un autre plugin via registerCustomEffect().
+ */
+export type CustomEffect = {
+    /** Identifiant unique de l'effet (ex: "birthday", "netricsa"). */
+    id: string;
+    /**
+     * Bloc CSS à injecter dans un <style> dédié.
+     * Peut contenir des @keyframes, des sélecteurs data-attributs, etc.
+     */
+    styleCSS: string;
+    /**
+     * Fonction appelée à chaque passe DOM (dans applyGradientToNames).
+     * Elle doit lire le DOM, poser des data-attributs sur les éléments pertinents
+     * et se débrouiller pour ne pas re-traiter ce qui l'est déjà.
+     */
+    applyFn: () => void;
+    /**
+     * Fonction de nettoyage : retire tous les data-attributs et modifications DOM
+     * posés par applyFn. Appelée lors du reset général ET lors du unregister.
+     */
+    cleanupFn: () => void;
+    /**
+     * (Optionnel) Couleur primaire RGB (format "rgb(r, g, b)") de l'effet.
+     * Si fournie, applyFn ne sera invoquée que si au moins un élément [data-fsb-gradient]
+     * portant cette couleur est présent dans le DOM (optimisation).
+     */
+    primaryRGB?: string;
+};
+
+// Map id → CustomEffect
+const registeredEffects: Map<string, CustomEffect> = new Map();
+// Map id → <style> injecté
+const effectStyles: Map<string, HTMLStyleElement> = new Map();
+
+/**
+ * Enregistre un effet visuel custom.
+ * Injecte immédiatement son CSS et déclenche un refresh DOM.
+ */
+export function registerCustomEffect(effect: CustomEffect): void {
+    registeredEffects.set(effect.id, effect);
+
+    if (effect.styleCSS) {
+        let styleEl = effectStyles.get(effect.id);
+        if (!styleEl || !styleEl.isConnected) {
+            styleEl = document.createElement("style");
+            styleEl.id = `fsb-effect-${effect.id}`;
+        }
+        styleEl.textContent = effect.styleCSS;
+        document.head.appendChild(styleEl);
+        effectStyles.set(effect.id, styleEl);
+    }
+}
+
+/**
+ * Désenregistre un effet visuel custom.
+ * Retire son CSS injecté et appelle cleanupFn pour nettoyer le DOM.
+ */
+export function unregisterCustomEffect(id: string): void {
+    const effect = registeredEffects.get(id);
+    if (!effect) return;
+    effect.cleanupFn();
+    effectStyles.get(id)?.remove();
+    effectStyles.delete(id);
+    registeredEffects.delete(id);
+}
+
 function rebuildColorStringIndex() {
     for (const k in colorStringIndex) delete colorStringIndex[k];
     for (const data of Object.values(hardcodedRoleColors)) {
@@ -232,6 +302,11 @@ function ensureGradientStyle() {
         li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars]:not([data-fsb-custom-anim]) {
             filter: drop-shadow(0 0 3px var(--custom-gradient-color-1));
         }
+        /* Quand on hover sur le username_ directement, ne pas doubler le glow avec celui du headerText */
+        div[role="article"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]),
+        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]) {
+            filter: none !important;
+        }
         /* Annuler le filter sur le badge APP */
         div[role="article"]:hover span[class*="headerText"][data-fsb-header-vars] span[class*="botTag"],
         li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars] span[class*="botTag"] {
@@ -366,531 +441,13 @@ function ensureGradientStyle() {
             background-size: 200px auto !important;
         }
 
-        /* ══════════════════════════════════════════════
-           🎂 HAPPY BIRTHDAY
-           Étoiles ✨ permanentes + scroll festif + glow multicolore au hover
-        ══════════════════════════════════════════════ */
-
-        /* Scroll festif au hover (nameContainer) */
-        div[class*="member__"]:hover span[data-fsb-birthday] span[class*="name__"],
-        li[class*="messageListItem"]:hover span[data-fsb-birthday] span[class*="name__"],
-        div[role="article"]:hover span[data-fsb-birthday] span[class*="name__"],
-        a:hover span[data-fsb-birthday] span[class*="name__"],
-        span[data-fsb-birthday]:hover span[class*="name__"] {
-            animation: fsb-bday-scroll 0.65s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        @keyframes fsb-bday-scroll {
-            from { background-position: 0 50%; }
-            to   { background-position: 300px 50%; }
-        }
-
-        /* Scroll festif au hover (username_ header message) */
-        div[role="article"]:hover span[class*="username_"][data-fsb-birthday],
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-birthday] {
-            animation: fsb-bday-scroll 0.65s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
-            ) !important;
-            background-size: 300px auto !important;
-        }
-
-        /* Glow multicolore au hover — header message via headerText (inclut l'icône de rôle) */
-        div[role="article"]:hover span[class*="headerText"][data-fsb-birthday-header],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-birthday-header] {
-            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
-        }
-        /* Annuler le filter sur le badge APP */
-        div[role="article"]:hover span[class*="headerText"][data-fsb-birthday-header] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-birthday-header] span[class*="botTag"] {
-            filter: none !important;
-        }
-
-        /* Glow au hover (member list) — sur le nameContainer, pas sur name__ qui est clippé */
-        div[class*="member__"]:hover span[data-fsb-birthday] {
-            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
-        }
-
-        /* ── Scroll festif + glow : catégorie de liste des membres ── */
-        div[class*="members_"]:hover div[data-fsb-birthday] span[data-fsb-gradient] {
-            animation: fsb-bday-scroll 0.65s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        div[class*="members_"]:hover div[data-fsb-birthday] {
-            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
-        }
-
-        /* ── Voice chat birthday : overflow visible pour que les étoiles soient visibles ── */
-        div[class*="usernameContainer_"][data-fsb-birthday] {
-            overflow: visible !important;
-        }
-        /* Scroll festif sur le span[data-fsb-mention-text] dans usernameContainer_ birthday
-           — toujours cibler le span texte (qui a background-clip:text), jamais le div parent */
-        div[class*="voiceUser"]:hover div[data-fsb-birthday] span[data-fsb-mention-text] {
-            animation: fsb-bday-scroll 0.65s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        /* Glow sur le voiceContainer parent */
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-birthday-voice] {
-            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
-        }
-
-        /* ── Étoiles ✨ (injectées en JS via data-fsb-bday-star) ── */
-        [data-fsb-bday-star] {
-            display: inline-block !important;
-            font-style: normal !important;
-            pointer-events: none !important;
-            position: relative !important;
-            -webkit-text-fill-color: currentcolor !important;
-            color: white !important;
-            opacity: 1 !important;
-            visibility: visible !important;
-            background-clip: unset !important;
-            -webkit-background-clip: unset !important;
-            background-image: none !important;
-        }
-
-        /* Animation étoiles AU HOVER uniquement */
-        div[class*="member__"]:hover [data-fsb-bday-star],
-        div[role="article"]:hover [data-fsb-bday-star],
-        li[class*="messageListItem"]:hover [data-fsb-bday-star],
-        div[class*="voiceUser"]:hover [data-fsb-voice-container] [data-fsb-bday-star],
-        div[class*="voiceUser"]:hover [data-fsb-bday-star] {
-            animation: fsb-bday-star-pop 1.3s ease-in-out infinite alternate;
-        }
-        [data-fsb-bday-star="l"] { animation-delay: 0s; }
-        [data-fsb-bday-star="r"] { animation-delay: 0.55s; }
-        @keyframes fsb-bday-star-pop {
-            from { opacity: 1;   transform: scale(1.15)   rotate(-15deg); }
-            to   { opacity: 1; transform: scale(0.85) rotate(15deg); }
-        }
-
-        /* ══════════════════════════════════════════════
-           🧠 NETRICSA — Scanline au hover
-           Une bande lumineuse traverse le nom comme une tête de lecture
-        ══════════════════════════════════════════════ */
-
-        @keyframes fsb-netricsa-scan {
-            0%   { background-position: 0px 50%; }
-            100% { background-position: 300px 50%; }
-        }
-
-        /* Gradient scanline : fond bleu uniforme + ligne blanche nette de ~2px sur 300px de large
-           Les stops adjacents identiques créent une transition abrupte (pas de flou) */
-        /* nameContainer — scan sur name__ */
-        div[class*="member__"]:hover span[data-fsb-netricsa] span[class*="name__"],
-        a:hover span[data-fsb-netricsa] span[class*="name__"],
-        span[data-fsb-netricsa]:hover span[class*="name__"] {
-            animation: fsb-netricsa-scan 2s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #2494db 0%,
-                #247d90 49%,
-                #ffffff 49%,
-                #ffffff 51%,
-                #247d90 51%,
-                #2494db 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-
-        /* username_ header message */
-        div[role="article"]:hover span[class*="username_"][data-fsb-netricsa],
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa] {
-            animation: fsb-netricsa-scan 2s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #2494db 0%,
-                #247d90 49%,
-                #ffffff 49%,
-                #ffffff 51%,
-                #247d90 51%,
-                #2494db 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-
-        /* Glow bleu tech au hover — nameContainer */
-        div[class*="member__"]:hover span[data-fsb-netricsa],
-        a:hover span[data-fsb-netricsa],
-        span[data-fsb-netricsa]:hover {
-            filter: drop-shadow(0 0 3px #2494db) !important;
-        }
-
-        /* Glow bleu tech au hover — header message via headerText (inclut l'icône de rôle) */
-        div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] {
-            filter: drop-shadow(0 0 3px #2494db) !important;
-        }
-        /* Annuler le filter sur le badge APP */
-        div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"] {
-            filter: none !important;
-        }
-
-        /* Catégorie liste membres */
-        div[class*="members_"]:hover div[data-fsb-netricsa] span[data-fsb-gradient] {
-            animation: fsb-netricsa-scan 2s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #2494db 0%,
-                #247d90 49%,
-                #ffffff 49%,
-                #ffffff 51%,
-                #247d90 51%,
-                #2494db 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        div[class*="members_"]:hover div[data-fsb-netricsa] {
-            filter: drop-shadow(0 0 3px #2494db) !important;
-        }
-
-        /* Voice chat */
-        div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-mention-text],
-        div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-gradient]:not([data-fsb-mention]) {
-            animation: fsb-netricsa-scan 2s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #2494db 0%,
-                #247d90 49%,
-                #ffffff 49%,
-                #ffffff 51%,
-                #247d90 51%,
-                #2494db 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-netricsa-voice] {
-            filter: drop-shadow(0 0 3px #2494db) !important;
-        }
-
-        /* ══════════════════════════════════════════════
-           🦜 KLODOVIK — Bounce au hover
-           Le nom rebondit comme un perroquet sur son perchoir
-        ══════════════════════════════════════════════ */
-
-        @keyframes fsb-klodovik-bounce {
-            0%   { transform: translateY(0);    }
-            25%  { transform: translateY(-3px); }
-            50%  { transform: translateY(0);    }
-            75%  { transform: translateY(-2px); }
-            100% { transform: translateY(0);    }
-        }
-
-        /* nameContainer — bounce sur name__ */
-        div[class*="member__"]:hover span[data-fsb-klodovik] span[class*="name__"],
-        a:hover span[data-fsb-klodovik] span[class*="name__"],
-        span[data-fsb-klodovik]:hover span[class*="name__"] {
-            display: inline-block !important;
-            animation: fsb-klodovik-bounce 0.5s ease infinite !important;
-        }
-
-        /* header message — bounce sur username_ uniquement */
-        div[role="article"]:hover span[class*="username_"][data-fsb-klodovik],
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-klodovik] {
-            display: inline-block !important;
-            vertical-align: middle !important;
-            animation: fsb-klodovik-bounce 0.5s ease infinite !important;
-        }
-
-        /* Glow vert nameContainer + header */
-        div[class*="member__"]:hover span[data-fsb-klodovik],
-        a:hover span[data-fsb-klodovik],
-        span[data-fsb-klodovik]:hover,
-        div[role="article"]:hover span[class*="headerText"][data-fsb-klodovik-header],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-klodovik-header] {
-            filter: drop-shadow(0 0 3px #56fd0d) !important;
-        }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-klodovik-header] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-klodovik-header] span[class*="botTag"] {
-            filter: none !important;
-        }
-
-        /* Catégorie liste membres — bounce sur le span texte + glow */
-        div[class*="members_"]:hover div[data-fsb-klodovik] span[data-fsb-gradient] {
-            display: inline-block !important;
-            animation: fsb-klodovik-bounce 0.5s ease infinite !important;
-        }
-        div[class*="members_"]:hover div[data-fsb-klodovik] {
-            filter: drop-shadow(0 0 3px #56fd0d) !important;
-        }
-
-        /* Voice chat — bounce sur le span texte + glow */
-        div[class*="voiceUser"]:hover div[data-fsb-klodovik] span[data-fsb-mention-text],
-        div[class*="voiceUser"]:hover div[data-fsb-klodovik] span[data-fsb-gradient]:not([data-fsb-mention]) {
-            display: inline-block !important;
-            animation: fsb-klodovik-bounce 0.5s ease infinite !important;
-        }
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-klodovik-voice] {
-            filter: drop-shadow(0 0 3px #56fd0d) !important;
-        }
-
-        /* ══════════════════════════════════════════════
-           🏆 GOLDEN / 🥈 SILVER / 🥉 BRONZE — keyframes shimmer
-        ══════════════════════════════════════════════ */
-        @keyframes fsb-golden-shimmer {
-            0%   { background-position: -300px 50%; }
-            100% { background-position: 300px 50%; }
-        }
-        @keyframes fsb-silver-shimmer {
-            0%   { background-position: -300px 50%; }
-            100% { background-position: 300px 50%; }
-        }
-        @keyframes fsb-bronze-shimmer {
-            0%   { background-position: -300px 50%; }
-            100% { background-position: 300px 50%; }
-        }
-        /* Glow Golden */
-        div[class*="member__"]:hover span[data-fsb-golden],
-        a:hover span[data-fsb-golden],
-        span[data-fsb-golden]:hover { filter: drop-shadow(0 0 3px #f7d774) !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-golden-header],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-golden-header] { filter: drop-shadow(0 0 3px #f7d774) !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-golden-header] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-golden-header] span[class*="botTag"] { filter: none !important; }
-        div[class*="members_"]:hover div[data-fsb-golden] { filter: drop-shadow(0 0 3px #f7d774) !important; }
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-golden-voice] { filter: drop-shadow(0 0 3px #f7d774) !important; }
-        /* Glow Silver */
-        div[class*="member__"]:hover span[data-fsb-silver],
-        a:hover span[data-fsb-silver],
-        span[data-fsb-silver]:hover { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-silver-header],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-silver-header] { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-silver-header] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-silver-header] span[class*="botTag"] { filter: none !important; }
-        div[class*="members_"]:hover div[data-fsb-silver] { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-silver-voice] { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
-        /* Glow Bronze */
-        div[class*="member__"]:hover span[data-fsb-bronze],
-        a:hover span[data-fsb-bronze],
-        span[data-fsb-bronze]:hover { filter: drop-shadow(0 0 3px #d08a4a) !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-bronze-header],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-bronze-header] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-bronze-header] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-bronze-header] span[class*="botTag"] { filter: none !important; }
-        div[class*="members_"]:hover div[data-fsb-bronze] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-bronze-voice] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
-
-        /* ══════════════════════════════════════════════
-           🔮 CELESTIAL — Étoiles en tourbillon au hover
-           Les étoiles orbitent autour du nom en cercle
-        ══════════════════════════════════════════════ */
-
-        /* ── Gradients statiques au repos (pas d'animation idle) ──────────────── */
-        /* Spécificité renforcée (double attribut) pour overrider data-fsb-gradient */
-        /* Golden */
-        span[data-fsb-golden][data-fsb-gradient] span[class*="name__"],
-        span[data-fsb-golden][data-fsb-custom-anim] span[class*="name__"],
-        span[class*="username_"][data-fsb-golden][data-fsb-gradient],
-        span[class*="username_"][data-fsb-golden][data-fsb-custom-anim] {
-            background-image: linear-gradient(to right, #bf9b30, #f7d774, #bf9b30) !important;
-            background-size: 200px auto !important;
-            animation: none !important;
-        }
-        /* Silver */
-        span[data-fsb-silver][data-fsb-gradient] span[class*="name__"],
-        span[data-fsb-silver][data-fsb-custom-anim] span[class*="name__"],
-        span[class*="username_"][data-fsb-silver][data-fsb-gradient],
-        span[class*="username_"][data-fsb-silver][data-fsb-custom-anim] {
-            background-image: linear-gradient(to right, #c0c0c0, #f2f2f2, #c0c0c0) !important;
-            background-size: 200px auto !important;
-            animation: none !important;
-        }
-        /* Bronze */
-        span[data-fsb-bronze][data-fsb-gradient] span[class*="name__"],
-        span[data-fsb-bronze][data-fsb-custom-anim] span[class*="name__"],
-        span[class*="username_"][data-fsb-bronze][data-fsb-gradient],
-        span[class*="username_"][data-fsb-bronze][data-fsb-custom-anim] {
-            background-image: linear-gradient(to right, #a05822, #d08a4a, #a05822) !important;
-            background-size: 200px auto !important;
-            animation: none !important;
-        }
-        /* Shimmer Golden au hover — spécificité renforcée */
-        div[class*="member__"]:hover span[data-fsb-golden][data-fsb-gradient] span[class*="name__"],
-        a:hover span[data-fsb-golden][data-fsb-gradient] span[class*="name__"],
-        div[role="article"]:hover span[class*="username_"][data-fsb-golden][data-fsb-gradient],
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-golden][data-fsb-gradient],
-        div[class*="members_"]:hover div[data-fsb-golden] span[data-fsb-gradient],
-        div[class*="voiceUser"]:hover div[data-fsb-golden] span[data-fsb-mention-text],
-        div[class*="voiceUser"]:hover div[data-fsb-golden] span[data-fsb-gradient]:not([data-fsb-mention]) {
-            animation: fsb-golden-shimmer 1.2s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #bf9b30 0%, #c8a435 30%, #ffffff 49%, #ffffff 51%, #c8a435 70%, #bf9b30 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        /* Shimmer Silver au hover */
-        div[class*="member__"]:hover span[data-fsb-silver][data-fsb-gradient] span[class*="name__"],
-        a:hover span[data-fsb-silver][data-fsb-gradient] span[class*="name__"],
-        div[role="article"]:hover span[class*="username_"][data-fsb-silver][data-fsb-gradient],
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-silver][data-fsb-gradient],
-        div[class*="members_"]:hover div[data-fsb-silver] span[data-fsb-gradient],
-        div[class*="voiceUser"]:hover div[data-fsb-silver] span[data-fsb-mention-text],
-        div[class*="voiceUser"]:hover div[data-fsb-silver] span[data-fsb-gradient]:not([data-fsb-mention]) {
-            animation: fsb-silver-shimmer 1.45s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #c0c0c0 0%, #d0d0d0 30%, #ffffff 49%, #ffffff 51%, #d0d0d0 70%, #c0c0c0 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        /* Shimmer Bronze au hover */
-        div[class*="member__"]:hover span[data-fsb-bronze][data-fsb-gradient] span[class*="name__"],
-        a:hover span[data-fsb-bronze][data-fsb-gradient] span[class*="name__"],
-        div[role="article"]:hover span[class*="username_"][data-fsb-bronze][data-fsb-gradient],
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-bronze][data-fsb-gradient],
-        div[class*="members_"]:hover div[data-fsb-bronze] span[data-fsb-gradient],
-        div[class*="voiceUser"]:hover div[data-fsb-bronze] span[data-fsb-mention-text],
-        div[class*="voiceUser"]:hover div[data-fsb-bronze] span[data-fsb-gradient]:not([data-fsb-mention]) {
-            animation: fsb-bronze-shimmer 1.8s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #a05822 0%, #b86a30 30%, #f0c080 49%, #f0c080 51%, #b86a30 70%, #a05822 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        /* Celestial */
-        span[data-fsb-celestial] span[class*="name__"],
-        span[class*="username_"][data-fsb-celestial] {
-            background-image: linear-gradient(to right, #a855f7, #7c3aed, #a855f7) !important;
-            background-size: 200px auto !important;
-        }
-        /* username_ header : le wrap a son propre background-clip, annuler sur le parent */
-        span[class*="username_"][data-fsb-celestial]:has([data-fsb-celestial-wrap]) {
-            background-image: none !important;
-            -webkit-text-fill-color: unset !important;
-        }
-
-        /* ══════════════════════════════════════════════
-           🔮 CELESTIAL — Shimmer violet + étoiles en tourbillon au hover
-        ══════════════════════════════════════════════ */
-
-        @keyframes fsb-celestial-shimmer {
-            0%   { background-position: -300px 50%; }
-            100% { background-position: 300px 50%; }
-        }
-
-        /* Shimmer hover sur le wrap celestial (username_ et nameContainer) */
-        div[role="article"]:hover [data-fsb-celestial-wrap],
-        li[class*="messageListItem"]:hover [data-fsb-celestial-wrap],
-        div[class*="member__"]:hover [data-fsb-celestial-wrap],
-        a:hover [data-fsb-celestial-wrap],
-        div[class*="voiceUser"]:hover [data-fsb-celestial-wrap] {
-            animation: fsb-celestial-shimmer 2s linear infinite !important;
-            background-image: linear-gradient(to right,
-                #a855f7 0%,
-                #9333ea 30%,
-                #e9d5ff 49%,
-                #e9d5ff 51%,
-                #9333ea 70%,
-                #a855f7 100%
-            ) !important;
-            background-size: 300px auto !important;
-        }
-        div[class*="member__"]:hover span[data-fsb-celestial],
-        a:hover span[data-fsb-celestial],
-        span[data-fsb-celestial]:hover {
-            filter: drop-shadow(0 0 4px #a855f7) !important;
-        }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-celestial-header],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-celestial-header] {
-            filter: drop-shadow(0 0 4px #a855f7) !important;
-        }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-celestial-header] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-celestial-header] span[class*="botTag"] {
-            filter: none !important;
-        }
-        div[class*="members_"]:hover div[data-fsb-celestial] { filter: drop-shadow(0 0 4px #a855f7) !important; }
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-celestial-voice] { filter: drop-shadow(0 0 4px #a855f7) !important; }
-
-        /* Forcer overflow visible sur les conteneurs Discord qui coupent les étoiles (hors voice) */
-        span[class*="username_"][data-fsb-celestial],
-        span[class*="headerText"][data-fsb-celestial-header],
-        span[class*="nameContainer"][data-fsb-celestial],
-        span[data-fsb-celestial] span[class*="name__"] {
-            overflow: visible !important;
-        }
-
-        /* Celestial wrap — gradient sur le conteneur wrappé pour que le texte reste visible */
-        [data-fsb-celestial-wrap] {
-            position: relative !important;
-            display: inline-block !important;
-            overflow: visible !important;
-            background-image: linear-gradient(to right, #a855f7, #7c3aed, #a855f7) !important;
-            -webkit-background-clip: text !important;
-            background-clip: text !important;
-            -webkit-text-fill-color: transparent !important;
-            background-size: 200px auto !important;
-        }
-
-        /* Chaque étoile — base commune */
-        [data-fsb-cstar] {
-            position: absolute !important;
-            display: inline-block !important;
-            pointer-events: none !important;
-            font-size: 9px !important;
-            line-height: 1 !important;
-            top: 50% !important;
-            left: 50% !important;
-            margin: -5px 0 0 -5px !important;
-            width: 10px !important;
-            height: 10px !important;
-            text-align: center !important;
-            opacity: 0 !important;
-            z-index: 9999 !important;
-            -webkit-text-fill-color: currentcolor !important;
-            background-clip: unset !important;
-            -webkit-background-clip: unset !important;
-            background-image: none !important;
-            color: #e9d5ff !important;
-        }
-
-        /* Étoiles voice : position calculée via CSS vars --star-top/--star-left passées en JS */
-        [data-fsb-cstar-voice] {
-            top: var(--star-top, 50%) !important;
-            left: var(--star-left, 50%) !important;
-            margin: -5px 0 0 -5px !important;
-        }
-
-        /* Les étoiles dans celestial-wrap (member list, header message) */
-        div[class*="member__"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
-        div[role="article"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
-        li[class*="messageListItem"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
-        span[data-fsb-celestial-wrap]:hover [data-fsb-cstar] {
-            opacity: 1 !important;
-            animation: fsb-celestial-orbit var(--orbit-duration, 2.4s) linear infinite !important;
-        }
-
-        /* Les étoiles voice — dans voiceContainer directement, hover sur voiceUser */
-        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-celestial-voice] [data-fsb-cstar-voice] {
-            opacity: 1 !important;
-            animation: fsb-celestial-orbit var(--orbit-duration, 2.4s) linear infinite !important;
-        }
-
-        /* Rotation circulaire simple : 4 étoiles réparties à 90° orbitent simultanément.
-           Délais négatifs en JS → toutes dans leur cycle dès le premier frame.
-           top:50%;left:50%;margin:-5px centre l'étoile sur son origine, puis :
-           rotate(θ+t) translateX(r) rotate(-(θ+t)) la place sur le cercle sans la déformer.
-           opacity:1 dans la keyframe override le opacity:0 du CSS de base. */
-        @keyframes fsb-celestial-orbit {
-            from {
-                opacity: 1;
-                transform: rotate(var(--orbit-start, 0deg)) translateX(var(--orbit-rx, 20px)) rotate(calc(-1 * var(--orbit-start, 0deg)));
-            }
-            to {
-                opacity: 1;
-                transform: rotate(calc(var(--orbit-start, 0deg) + 360deg)) translateX(var(--orbit-rx, 20px)) rotate(calc(-1 * (var(--orbit-start, 0deg) + 360deg)));
-            }
-        }
+        /* Les effets CSS spécifiques aux rôles custom (Birthday, Netricsa, Klodovik, Golden, Silver, Bronze, Celestial)
+           sont injectés par botRoleColor via registerCustomEffect(). */
     `;
     document.head.appendChild(gradientStyleEl);
 }
 
-function normalizeColor(color: string): string {
+export function normalizeColor(color: string): string {
     // Convertit #rrggbb en rgb(r, g, b) pour uniformiser les lookups
     if (color.startsWith("#")) {
         const m = /^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
@@ -899,416 +456,12 @@ function normalizeColor(color: string): string {
     return color;
 }
 
-// Couleur primaire du rôle Birthday (rgb normalisé)
-const BIRTHDAY_PRIMARY_RGB = "rgb(255, 0, 149)"; // #ff0095
-
-/** Nettoie les marqueurs birthday sur un élément qui n'a plus la couleur birthday */
-function cleanBirthdayEl(el: HTMLElement) {
-    el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-    delete el.dataset.fsbBirthday;
-    delete el.dataset.fsbCustomAnim;
-}
-
-// Couleur primaire du rôle Netricsa (rgb normalisé)
-const NETRICSA_PRIMARY_RGB = "rgb(36, 148, 219)"; // #2494db
-
-/** Nettoie les marqueurs Netricsa sur un élément */
-function cleanNetricsaEl(el: HTMLElement) {
-    delete el.dataset.fsbNetricsa;
-    delete el.dataset.fsbCustomAnim;
-}
-
-/** Applique l'effet scanline Netricsa sur tous les éléments du rôle */
-function applyNetricsaEffect() {
-    // ── Nettoyage : retirer netricsa sur tout élément qui a perdu la couleur ──
-    document.querySelectorAll<HTMLElement>("[data-fsb-netricsa]").forEach(el => {
-        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) {
-            cleanNetricsaEl(el);
-            const headerText = el.closest<HTMLElement>("span[data-fsb-netricsa-header]");
-            if (headerText) {
-                delete headerText.dataset.fsbNetricsaHeader;
-                delete headerText.dataset.fsbCustomAnim;
-            }
-        }
-    });
-    document.querySelectorAll<HTMLElement>("span[data-fsb-netricsa-header]").forEach(headerText => {
-        if (!headerText.querySelector("[data-fsb-netricsa]")) {
-            delete headerText.dataset.fsbNetricsaHeader;
-            delete headerText.dataset.fsbCustomAnim;
-        }
-    });
-
-    // 1. nameContainer
-    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
-        el.dataset.fsbNetricsa = "1";
-        el.dataset.fsbCustomAnim = "1";
-    });
-
-    // 2. span.username_ (header de message)
-    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
-        el.dataset.fsbNetricsa = "1";
-        el.dataset.fsbCustomAnim = "1";
-        const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
-        if (headerText) {
-            headerText.dataset.fsbNetricsaHeader = "1";
-            headerText.dataset.fsbCustomAnim = "1";
-        }
-    });
-
-    // 3. Catégorie liste des membres
-    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-netricsa])').forEach(ariaHidden => {
-        if (normalizeColor(ariaHidden.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
-        ariaHidden.dataset.fsbNetricsa = "1";
-        ariaHidden.dataset.fsbCustomAnim = "1";
-    });
-
-    // 4. Voice chat
-    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-netricsa])').forEach(container => {
-        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
-        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
-            ?? container.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) return;
-        container.dataset.fsbNetricsa = "1";
-        container.dataset.fsbCustomAnim = "1";
-        const voiceContainer = container.parentElement;
-        if (voiceContainer?.dataset.fsbVoiceContainer) {
-            voiceContainer.dataset.fsbNetricsaVoice = "1";
-            voiceContainer.dataset.fsbCustomAnim = "1";
-        }
-    });
-}
-
-// Couleur primaire du rôle Klodovik (rgb normalisé)
-const KLODOVIK_PRIMARY_RGB = "rgb(86, 253, 13)"; // #56fd0d
-
-/** Nettoie les marqueurs Klodovik sur un élément */
-function cleanKlodovikEl(el: HTMLElement) {
-    delete el.dataset.fsbKlodovik;
-    delete el.dataset.fsbCustomAnim;
-}
-
-/** Applique l'effet bounce Klodovik sur tous les éléments du rôle */
-function applyKlodovikEffect() {
-    // ── Nettoyage ──
-    document.querySelectorAll<HTMLElement>("[data-fsb-klodovik]").forEach(el => {
-        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== KLODOVIK_PRIMARY_RGB) {
-            cleanKlodovikEl(el);
-            const headerText = el.closest<HTMLElement>("span[data-fsb-klodovik-header]");
-            if (headerText) {
-                delete headerText.dataset.fsbKlodovikHeader;
-                delete headerText.dataset.fsbCustomAnim;
-            }
-        }
-    });
-    document.querySelectorAll<HTMLElement>("span[data-fsb-klodovik-header]").forEach(headerText => {
-        if (!headerText.querySelector("[data-fsb-klodovik]")) {
-            delete headerText.dataset.fsbKlodovikHeader;
-            delete headerText.dataset.fsbCustomAnim;
-        }
-    });
-
-    // 1. nameContainer
-    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-klodovik])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
-        el.dataset.fsbKlodovik = "1";
-        el.dataset.fsbCustomAnim = "1";
-    });
-
-    // 2. span.username_ (header de message)
-    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-klodovik])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
-        el.dataset.fsbKlodovik = "1";
-        el.dataset.fsbCustomAnim = "1";
-        const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
-        if (headerText) {
-            headerText.dataset.fsbKlodovikHeader = "1";
-            headerText.dataset.fsbCustomAnim = "1";
-        }
-    });
-
-    // 3. Catégorie liste des membres
-    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-klodovik])').forEach(ariaHidden => {
-        if (normalizeColor(ariaHidden.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
-        ariaHidden.dataset.fsbKlodovik = "1";
-        ariaHidden.dataset.fsbCustomAnim = "1";
-    });
-
-    // 4. Voice chat
-    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-klodovik])').forEach(container => {
-        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
-        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
-            ?? container.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== KLODOVIK_PRIMARY_RGB) return;
-        container.dataset.fsbKlodovik = "1";
-        container.dataset.fsbCustomAnim = "1";
-        const voiceContainer = container.parentElement;
-        if (voiceContainer?.dataset.fsbVoiceContainer) {
-            voiceContainer.dataset.fsbKlodovikVoice = "1";
-            voiceContainer.dataset.fsbCustomAnim = "1";
-        }
-    });
-}
-
-// ── Golden / Silver / Bronze / Celestial ──────────────────────────────────────
-
-// Étoiles Celestial : 4 étoiles uniformément réparties à 90° d'écart
-const CELESTIAL_STARS = ["✦", "✦", "✦", "✦"];
-// Rayon d'orbite en px, durée en secondes
-const CELESTIAL_ORBIT_RADIUS = 14;
-const CELESTIAL_ORBIT_DURATION = 2.4;
-
-type SimpleEffect = {
-    key: string; // data-fsb-XXX
-    rgb: string; // rgb(r,g,b) de la couleur primaire
-    voiceKey: string; // data-fsb-XXX-voice
-    headerKey: string; // data-fsb-XXX-header
-};
-
-const SIMPLE_EFFECTS: SimpleEffect[] = [
-    { key: "fsbGolden", rgb: "rgb(191, 155, 48)", voiceKey: "fsbGoldenVoice", headerKey: "fsbGoldenHeader" },
-    { key: "fsbSilver", rgb: "rgb(192, 192, 192)", voiceKey: "fsbSilverVoice", headerKey: "fsbSilverHeader" },
-    { key: "fsbBronze", rgb: "rgb(160, 88, 34)", voiceKey: "fsbBronzeVoice", headerKey: "fsbBronzeHeader" },
-];
-
-const CELESTIAL_PRIMARY_RGB = "rgb(168, 85, 247)"; // #a855f7
-
-function makeSimpleApply(effect: SimpleEffect) {
-    return function () {
-        const attrName = effect.key; // camelCase → data- mangling via dataset
-        const attrStr = attrName.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`).replace(/^fsb/, "data-fsb");
-        const selector = `[${attrStr}]`;
-
-        // Nettoyage
-        document.querySelectorAll<HTMLElement>(selector).forEach(el => {
-            const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-            if (!c1 || normalizeColor(c1) !== effect.rgb) {
-                delete (el.dataset as any)[attrName];
-                delete el.dataset.fsbCustomAnim;
-                const headerText = el.closest<HTMLElement>(`[data-${effect.headerKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`)}]`);
-                if (headerText) {
-                    delete (headerText.dataset as any)[effect.headerKey];
-                    delete headerText.dataset.fsbCustomAnim;
-                }
-            }
-        });
-
-        // 1. nameContainer
-        document.querySelectorAll<HTMLElement>(`span[class*="nameContainer"][data-fsb-gradient]:not(${selector})`).forEach(el => {
-            if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== effect.rgb) return;
-            (el.dataset as any)[attrName] = "1";
-            el.dataset.fsbCustomAnim = "1";
-        });
-        // 2. username_ header
-        document.querySelectorAll<HTMLElement>(`span[class*="username_"][data-fsb-gradient]:not(${selector})`).forEach(el => {
-            if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== effect.rgb) return;
-            (el.dataset as any)[attrName] = "1";
-            el.dataset.fsbCustomAnim = "1";
-            const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
-            if (headerText) {
-                (headerText.dataset as any)[effect.headerKey] = "1";
-                headerText.dataset.fsbCustomAnim = "1";
-            }
-        });
-        // 3. Catégorie
-        document.querySelectorAll<HTMLElement>(`[aria-hidden="true"][data-fsb-cat-checked]:not(${selector})`).forEach(el => {
-            if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== effect.rgb) return;
-            (el.dataset as any)[attrName] = "1";
-            el.dataset.fsbCustomAnim = "1";
-        });
-        // 4. Voice
-        document.querySelectorAll<HTMLElement>(`div[class*="usernameContainer_"][data-fsb-voice-checked]:not(${selector})`).forEach(container => {
-            const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
-            const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
-            if (!c1 || normalizeColor(c1) !== effect.rgb) return;
-            (container.dataset as any)[attrName] = "1";
-            container.dataset.fsbCustomAnim = "1";
-            const voiceContainer = container.parentElement;
-            if (voiceContainer?.dataset.fsbVoiceContainer) {
-                (voiceContainer.dataset as any)[effect.voiceKey] = "1";
-                voiceContainer.dataset.fsbCustomAnim = "1";
-            }
-        });
-    };
-}
-
-const applyGoldenEffect = makeSimpleApply(SIMPLE_EFFECTS[0]);
-const applySilverEffect = makeSimpleApply(SIMPLE_EFFECTS[1]);
-const applyBronzeEffect = makeSimpleApply(SIMPLE_EFFECTS[2]);
-
-/** Injecte les étoiles orbitantes autour du nœud texte pour Celestial */
-function injectCelestialStars(target: HTMLElement) {
-    if (target.querySelector("[data-fsb-cstar]")) return;
-
-    const wrap = document.createElement("span");
-    wrap.dataset.fsbCelestialWrap = "1";
-    wrap.style.cssText = "position:relative;display:inline-block;";
-
-    while (target.firstChild) wrap.appendChild(target.firstChild);
-    target.appendChild(wrap);
-
-    const applyStarVars = (rx: number) => {
-        wrap.querySelectorAll<HTMLElement>("[data-fsb-cstar]").forEach(star => {
-            star.style.setProperty("--orbit-rx", `${rx}px`);
-        });
-    };
-
-    CELESTIAL_STARS.forEach((char, i) => {
-        const star = document.createElement("span");
-        star.dataset.fsbCstar = String(i);
-        star.textContent = char;
-        const startDeg = (360 / CELESTIAL_STARS.length) * i;
-        // Pas de délai : chaque étoile a son propre --orbit-start (0°, 90°, 180°, 270°)
-        // La rotation 0→360° depuis des angles différents les garde réparties à 90° en permanence
-        star.style.setProperty("--orbit-start", `${startDeg}deg`);
-        star.style.setProperty("--orbit-rx", `${CELESTIAL_ORBIT_RADIUS}px`);
-        star.style.setProperty("--orbit-duration", `${CELESTIAL_ORBIT_DURATION}s`);
-        wrap.appendChild(star);
-    });
-
-    requestAnimationFrame(() => {
-        const w = wrap.offsetWidth;
-        if (w > 0) applyStarVars(Math.round(w / 2) + 6);
-    });
-}
-
-/** Injecte les étoiles directement dans voiceContainer (pas de clipping) pour le voice chat */
-function injectCelestialStarsVoice(voiceContainer: HTMLElement, usernameContainer: HTMLElement) {
-    if (voiceContainer.querySelector("[data-fsb-cstar]")) return;
-    voiceContainer.style.position = "relative";
-    voiceContainer.style.overflow = "visible";
-
-    CELESTIAL_STARS.forEach((char, i) => {
-        const star = document.createElement("span");
-        star.dataset.fsbCstar = String(i);
-        star.dataset.fsbCstarVoice = "1";
-        star.textContent = char;
-        const startDeg = (360 / CELESTIAL_STARS.length) * i;
-        // Pas de délai : --orbit-start différent par étoile, réparties à 90° en permanence
-        star.style.cssText = "position:absolute;pointer-events:none;";
-        star.style.setProperty("--orbit-start", `${startDeg}deg`);
-        star.style.setProperty("--orbit-rx", `${CELESTIAL_ORBIT_RADIUS}px`);
-        star.style.setProperty("--orbit-duration", `${CELESTIAL_ORBIT_DURATION}s`);
-        star.style.setProperty("--star-top", "50%");
-        star.style.setProperty("--star-left", "50%");
-        voiceContainer.appendChild(star);
-    });
-
-    requestAnimationFrame(() => {
-        const nameDiv = usernameContainer.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]")
-            ?? usernameContainer;
-
-        const vcRect   = voiceContainer.getBoundingClientRect();
-        const nameRect = nameDiv.getBoundingClientRect();
-
-        if (vcRect.width === 0 || nameRect.width === 0) return;
-
-        const centerLeft = (nameRect.left - vcRect.left) + nameRect.width  / 2;
-        const centerTop  = (nameRect.top  - vcRect.top)  + nameRect.height / 2;
-        const rx = Math.round(nameRect.width / 2) + 6;
-
-        voiceContainer.querySelectorAll<HTMLElement>("[data-fsb-cstar-voice]").forEach(star => {
-            star.style.setProperty("--star-top",  `${centerTop}px`);
-            star.style.setProperty("--star-left", `${centerLeft}px`);
-            star.style.setProperty("--orbit-rx",  `${rx}px`);
-        });
-    });
-}
-
-/** Retire le wrapper et les étoiles Celestial d'un élément */
-function cleanCelestialEl(el: HTMLElement) {
-    const wrap = el.querySelector<HTMLElement>("[data-fsb-celestial-wrap]");
-    if (wrap) {
-        Array.from(wrap.childNodes).forEach(n => {
-            if (n instanceof HTMLElement && n.dataset.fsbCstar !== undefined) return;
-            el.insertBefore(n, wrap);
-        });
-        wrap.remove();
-    }
-    // Nettoyer aussi les étoiles voice injectées directement dans voiceContainer
-    el.querySelectorAll("[data-fsb-cstar-voice]").forEach(s => s.remove());
-    if (el.dataset.fsbCelestialVoice) {
-        el.style.position = "";
-        el.style.overflow = "";
-    }
-    delete el.dataset.fsbCelestial;
-    delete el.dataset.fsbCustomAnim;
-}
-
-function applyCelestialEffect() {
-    // ── Nettoyage ──
-    document.querySelectorAll<HTMLElement>("[data-fsb-celestial]").forEach(el => {
-        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== CELESTIAL_PRIMARY_RGB) {
-            cleanCelestialEl(el);
-            const headerText = el.closest<HTMLElement>("span[data-fsb-celestial-header]");
-            if (headerText) { delete headerText.dataset.fsbCelestialHeader; delete headerText.dataset.fsbCustomAnim; }
-        }
-    });
-    document.querySelectorAll<HTMLElement>("span[data-fsb-celestial-header]").forEach(headerText => {
-        if (!headerText.querySelector("[data-fsb-celestial]")) {
-            delete headerText.dataset.fsbCelestialHeader;
-            delete headerText.dataset.fsbCustomAnim;
-        }
-    });
-
-    // 1. nameContainer
-    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-celestial])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CELESTIAL_PRIMARY_RGB) return;
-        el.dataset.fsbCelestial = "1";
-        el.dataset.fsbCustomAnim = "1";
-        const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
-        if (nameSpan && !nameSpan.querySelector("[data-fsb-celestial-wrap]")) injectCelestialStars(nameSpan);
-    });
-
-    // 2. username_ header
-    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-celestial])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CELESTIAL_PRIMARY_RGB) return;
-        el.dataset.fsbCelestial = "1";
-        el.dataset.fsbCustomAnim = "1";
-        const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
-        if (headerText) { headerText.dataset.fsbCelestialHeader = "1"; headerText.dataset.fsbCustomAnim = "1"; }
-        if (!el.querySelector("[data-fsb-celestial-wrap]")) injectCelestialStars(el);
-    });
-
-    // 3. Catégorie
-    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-celestial])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CELESTIAL_PRIMARY_RGB) return;
-        el.dataset.fsbCelestial = "1";
-        el.dataset.fsbCustomAnim = "1";
-    });
-
-    // 4. Voice — injecter les étoiles dans voiceContainer (pas de clipping)
-    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-celestial])').forEach(container => {
-        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
-        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== CELESTIAL_PRIMARY_RGB) return;
-        container.dataset.fsbCelestial = "1";
-        container.dataset.fsbCustomAnim = "1";
-        const voiceContainer = container.parentElement;
-        if (voiceContainer?.dataset.fsbVoiceContainer) {
-            voiceContainer.dataset.fsbCelestialVoice = "1";
-            voiceContainer.dataset.fsbCustomAnim = "1";
-            // Injecter les étoiles dans voiceContainer pour éviter le clipping des divs internes
-            if (!voiceContainer.querySelector("[data-fsb-cstar]")) injectCelestialStarsVoice(voiceContainer, container);
-        }
-    });
-}
-
 function applyGradientToContainer(nameContainer: HTMLElement, g: GradientInfo) {
     nameContainer.style.removeProperty("color");
     nameContainer.style.setProperty("--custom-gradient-color-1", g.primary);
     nameContainer.style.setProperty("--custom-gradient-color-2", g.secondary);
     nameContainer.style.setProperty("--custom-gradient-color-3", g.tertiary);
     nameContainer.dataset.fsbGradient = "1";
-
-    // Si la nouvelle couleur n'est pas birthday, nettoyer les marqueurs/étoiles birthday
-    if (nameContainer.dataset.fsbBirthday && normalizeColor(g.primary) !== BIRTHDAY_PRIMARY_RGB) {
-        cleanBirthdayEl(nameContainer);
-    }
 
     const nameSpan = nameContainer.querySelector<HTMLElement>('span[class*="name__"]');
     if (nameSpan && !nameSpan.dataset.fsbGradientName) {
@@ -1328,20 +481,24 @@ function applyGradientToUsernameSpan(el: HTMLElement, g: GradientInfo) {
     el.style.setProperty("--custom-gradient-color-3", g.tertiary);
     el.dataset.fsbGradient = "1";
 
-    // Si la nouvelle couleur n'est pas birthday, nettoyer les marqueurs/étoiles birthday
-    if (el.dataset.fsbBirthday && normalizeColor(g.primary) !== BIRTHDAY_PRIMARY_RGB) {
-        cleanBirthdayEl(el);
-        const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
-        if (headerText) {
-            headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-            delete headerText.dataset.fsbBirthdayHeader;
-            delete headerText.dataset.fsbCustomAnim;
-        }
-    }
-
     const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
     if (headerText && !headerText.dataset.fsbHeaderVars) {
         headerText.style.setProperty("--custom-gradient-color-1", g.primary);
+        headerText.dataset.fsbHeaderVars = "1";
+    }
+}
+
+/** Marque data-fsb-gradient sur un span username_ qui a déjà ses CSS vars posées nativement par Discord */
+function markUsernameGradientFromVars(el: HTMLElement) {
+    if (el.querySelector("img, svg")) return;
+    if (el.dataset.fsbGradient) return;
+    const p = el.style.getPropertyValue("--custom-gradient-color-1");
+    const s = el.style.getPropertyValue("--custom-gradient-color-2");
+    if (!p || !s) return;
+    el.dataset.fsbGradient = "1";
+    const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
+    if (headerText && !headerText.dataset.fsbHeaderVars) {
+        headerText.style.setProperty("--custom-gradient-color-1", p);
         headerText.dataset.fsbHeaderVars = "1";
     }
 }
@@ -1353,7 +510,6 @@ function resetCatEl(el: HTMLElement) {
     el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
     el.style.removeProperty("--custom-gradient-color-1");
     delete el.dataset.fsbCatChecked;
-    delete el.dataset.fsbBirthday;
     delete el.dataset.fsbCustomAnim;
     // Nettoyer aussi les spans enfants qui ont des CSS vars et data-fsb-gradient
     // (nœuds recyclés : le span garde les couleurs de l'ancienne catégorie)
@@ -1362,14 +518,8 @@ function resetCatEl(el: HTMLElement) {
         span.style.removeProperty("--custom-gradient-color-2");
         span.style.removeProperty("--custom-gradient-color-3");
         delete span.dataset.fsbGradient;
-        delete span.dataset.fsbBirthday;
-        delete span.dataset.fsbNetricsa;
-        delete span.dataset.fsbKlodovik;
-        delete span.dataset.fsbGolden;
-        delete span.dataset.fsbSilver;
-        delete span.dataset.fsbBronze;
-        delete span.dataset.fsbCelestial;
         delete span.dataset.fsbCustomAnim;
+        // Laisser les effets custom se nettoyer eux-mêmes via leur cleanupFn
     });
 }
 
@@ -1412,13 +562,6 @@ export function applyRoleIcons() {
         const gradSpan = ariaHidden.querySelector<HTMLElement>("[data-fsb-gradient]");
         const currentC1 = gradSpan?.style.getPropertyValue("--custom-gradient-color-1") ?? "";
 
-        if (ariaHidden.dataset.fsbBirthday && (!currentC1 || normalizeColor(currentC1) !== BIRTHDAY_PRIMARY_RGB)) {
-            // Le rôle n'est plus birthday → retirer les étoiles et les marqueurs
-            ariaHidden.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-            delete ariaHidden.dataset.fsbBirthday;
-            delete ariaHidden.dataset.fsbCustomAnim;
-        }
-
         // Vérifier si une icône native Discord existe DANS notre ariaHidden (doublon réel)
         const nativeIconInAriaHidden = ariaHidden.querySelectorAll('img[class*="roleIcon"]:not([data-fsb-role-icon])').length > 0;
 
@@ -1457,209 +600,37 @@ export function applyRoleIcons() {
         }
     });
 
-    // 0c. Re-vérification des containers voice déjà marqués (changement de rôle en cours de session)
-    document.querySelectorAll<HTMLElement>(
-        'div[class*="usernameContainer_"][data-fsb-voice-checked][data-fsb-birthday]'
-    ).forEach(container => {
-        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
-        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
-            ?? container.style.getPropertyValue("--custom-gradient-color-1");
-
-        // Si la couleur n'est plus birthday → nettoyer complètement
-        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) {
-            container.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-            delete container.dataset.fsbBirthday;
-            delete container.dataset.fsbCustomAnim;
-            const voiceContainer = container.parentElement;
-            if (voiceContainer?.dataset.fsbBirthdayVoice) {
-                delete voiceContainer.dataset.fsbBirthdayVoice;
-                delete voiceContainer.dataset.fsbCustomAnim;
-            }
-        }
-    });
 }
 
 /** Déplace le span contenant l'icône de rôle avant le span du clan tag dans les headers de messages */
 function reorderRoleIconBeforeClanTag() {
-    // Cibler les headerText qui contiennent à la fois un clan tag et une icône de rôle
-    document.querySelectorAll<HTMLElement>('span[class*="headerText_"]:not([data-fsb-role-reordered])').forEach(headerText => {
-        // Chercher le span wrapper du clan tag (contient chipletContainerInner)
+    document.querySelectorAll<HTMLElement>('span[class*="headerText"]:not([data-fsb-role-reordered])').forEach(headerText => {
         const clanTagSpan = Array.from(headerText.children).find(child =>
             child.querySelector('[class*="chipletContainerInner"]')
         ) as HTMLElement | undefined;
-        if (!clanTagSpan) return;
+        if (!clanTagSpan) {
+            // Pas de clan tag → rien à réordonner, marquer pour ne pas rescanner
+            headerText.dataset.fsbRoleReordered = "1";
+            return;
+        }
 
-        // Chercher le span wrapper de l'icône de rôle (contient img.roleIcon_)
         const roleIconSpan = Array.from(headerText.children).find(child =>
             child !== clanTagSpan && child.querySelector('img[class*="roleIcon"]')
         ) as HTMLElement | undefined;
-        if (!roleIconSpan) return;
+        if (!roleIconSpan) {
+            // Clan tag présent mais pas encore d'icône de rôle → ne pas marquer, réessayer plus tard
+            return;
+        }
 
-        // Vérifier que l'icône est bien actuellement APRÈS le clan tag
-        const clanIdx = Array.from(headerText.children).indexOf(clanTagSpan);
-        const roleIdx = Array.from(headerText.children).indexOf(roleIconSpan);
-        if (roleIdx <= clanIdx) return; // déjà dans le bon ordre
-
-        // Insérer le roleIconSpan avant le clanTagSpan
-        headerText.insertBefore(roleIconSpan, clanTagSpan);
+        const children = Array.from(headerText.children);
+        const clanIdx = children.indexOf(clanTagSpan);
+        const roleIdx = children.indexOf(roleIconSpan);
+        // Réordonner si nécessaire, puis marquer dans tous les cas
+        if (roleIdx > clanIdx) headerText.insertBefore(roleIconSpan, clanTagSpan);
         headerText.dataset.fsbRoleReordered = "1";
     });
 }
 
-/** Injecte les étoiles ✨ et marque data-fsb-birthday sur les éléments du rôle Happy Birthday */
-function applyBirthdayEffect() {
-    // ── Nettoyage : retirer birthday sur tout élément qui a perdu la couleur ──
-
-    // nameContainer déjà marqués birthday
-    document.querySelectorAll<HTMLElement>("span[data-fsb-birthday]").forEach(el => {
-        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) {
-            cleanBirthdayEl(el);
-            // Nettoyer aussi le headerText parent si c'est un username_
-            const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
-            if (headerText) {
-                headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-                delete headerText.dataset.fsbBirthdayHeader;
-                delete headerText.dataset.fsbCustomAnim;
-            }
-        }
-    });
-
-    // headerText avec étoiles orphelines (username_ re-rendu sans data-fsb-birthday)
-    document.querySelectorAll<HTMLElement>("span[data-fsb-birthday-header]").forEach(headerText => {
-        const username = headerText.querySelector<HTMLElement>("span[data-fsb-birthday]");
-        if (!username) {
-            headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-            delete headerText.dataset.fsbBirthdayHeader;
-            delete headerText.dataset.fsbCustomAnim;
-        }
-    });
-
-    // 1. nameContainer (liste membres, popout…)
-    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-birthday])').forEach(el => {
-        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
-
-        el.dataset.fsbBirthday = "1";
-        el.dataset.fsbCustomAnim = "1";
-
-        const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
-        if (nameSpan && !el.querySelector('[data-fsb-bday-star="l"]')) {
-            const starL = document.createElement("span");
-            starL.dataset.fsbBdayStar = "l";
-            starL.textContent = "✨";
-            starL.style.cssText = "font-size:11px;margin-right:3px;vertical-align:middle;";
-            el.insertBefore(starL, nameSpan);
-
-            const starR = document.createElement("span");
-            starR.dataset.fsbBdayStar = "r";
-            starR.textContent = "🎉";
-            starR.style.cssText = "font-size:11px;margin-left:3px;vertical-align:middle;";
-            el.appendChild(starR);
-        }
-    });
-
-    // 2. span.username_ (header de message)
-    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-birthday])').forEach(el => {
-        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
-
-        el.dataset.fsbBirthday = "1";
-        el.dataset.fsbCustomAnim = "1";
-
-        const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
-        if (headerText) {
-            headerText.dataset.fsbBirthdayHeader = "1";
-            headerText.dataset.fsbCustomAnim = "1";
-        }
-
-        if (headerText && !headerText.querySelector("[data-fsb-bday-star]")) {
-            const usernameWrapper = (el.parentElement?.parentElement === headerText
-                ? el.parentElement
-                : el.parentElement === headerText
-                    ? el
-                    : null) ?? el;
-
-            const starL = document.createElement("span");
-            starL.dataset.fsbBdayStar = "l";
-            starL.textContent = "✨";
-            starL.style.cssText = "font-size:11px;vertical-align:middle;margin-right:2px;";
-            headerText.insertBefore(starL, usernameWrapper);
-
-            const starR = document.createElement("span");
-            starR.dataset.fsbBdayStar = "r";
-            starR.textContent = "🎉";
-            starR.style.cssText = "font-size:11px;vertical-align:middle;margin-left:2px;";
-            usernameWrapper.after(starR);
-        }
-    });
-
-    // 3. Catégorie de liste des membres (div[aria-hidden][data-fsb-cat-checked])
-    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-birthday])').forEach(ariaHidden => {
-        const c1 = ariaHidden.style.getPropertyValue("--custom-gradient-color-1");
-        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
-        ariaHidden.dataset.fsbBirthday = "1";
-        ariaHidden.dataset.fsbCustomAnim = "1";
-    });
-
-    // 4. Voice chat
-    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]').forEach(container => {
-        const voiceContainer = container.parentElement;
-        // gradDiv peut avoir data-fsb-gradient (sans icône de rôle) ou data-fsb-mention (avec icône de rôle)
-        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
-
-        // Nettoyage : retirer les étoiles mal placées (pas dans gradDiv)
-        Array.from(container.querySelectorAll<HTMLElement>("[data-fsb-bday-star]"))
-            .filter(s => s.parentElement !== gradDiv)
-            .forEach(s => { s.remove(); delete container.dataset.fsbBirthday; delete container.dataset.fsbCustomAnim; });
-        if (voiceContainer?.dataset.fsbVoiceContainer) {
-            Array.from(voiceContainer.querySelectorAll<HTMLElement>("[data-fsb-bday-star]"))
-                .filter(s => s.parentElement === voiceContainer)
-                .forEach(s => { s.remove(); delete container.dataset.fsbBirthday; delete container.dataset.fsbCustomAnim; });
-        }
-
-        // Incohérence : marqué birthday mais sans étoiles dans gradDiv → forcer ré-injection
-        if (container.dataset.fsbBirthday && gradDiv && !gradDiv.querySelector("[data-fsb-bday-star]")) {
-            delete container.dataset.fsbBirthday;
-            delete container.dataset.fsbCustomAnim;
-        }
-
-        if (container.dataset.fsbBirthday) return;
-
-        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
-            ?? container.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
-
-        container.dataset.fsbBirthday = "1";
-        container.dataset.fsbCustomAnim = "1";
-
-        if (voiceContainer?.dataset.fsbVoiceContainer) {
-            voiceContainer.dataset.fsbBirthdayVoice = "1";
-            voiceContainer.dataset.fsbCustomAnim = "1";
-        }
-
-        // Injecter ✨ et 🎉 à l'intérieur de gradDiv, autour du span[data-fsb-mention-text] ou du texte
-        if (gradDiv && !gradDiv.querySelector("[data-fsb-bday-star]")) {
-            const textNode = gradDiv.querySelector("[data-fsb-mention-text]") ?? gradDiv.firstChild;
-
-            const starL = document.createElement("span");
-            starL.dataset.fsbBdayStar = "l";
-            starL.textContent = "✨";
-            starL.style.cssText = "font-size:10px;margin-right:2px;vertical-align:middle;";
-            if (textNode) gradDiv.insertBefore(starL, textNode);
-            else gradDiv.prepend(starL);
-
-            const starR = document.createElement("span");
-            starR.dataset.fsbBdayStar = "r";
-            starR.textContent = "🎉";
-            starR.style.cssText = "font-size:10px;margin-left:2px;vertical-align:middle;";
-            // Insérer avant l'icône de rôle si elle existe, sinon append
-            const roleIcon = gradDiv.querySelector<HTMLElement>("[data-fsb-role-icon]");
-            if (roleIcon) gradDiv.insertBefore(starR, roleIcon);
-            else gradDiv.append(starR);
-        }
-    });
-}
 
 export function applyGradientToNames() {
     // Toujours injecter les icônes, indépendamment des gradients
@@ -1669,45 +640,47 @@ export function applyGradientToNames() {
     if (rgbToGradient.size === 0) return;
     ensureGradientStyle();
 
-    // 1. nameContainer avec color inline — liste des membres, popouts, etc.
+    // 1. nameContainer — fusionné : color inline OU CSS vars déjà posées
     document.querySelectorAll<HTMLElement>(
         'span[class*="nameContainer"]:not([data-fsb-gradient])'
     ).forEach(el => {
+        // Cas A : CSS vars déjà présentes (injectées par Discord natif ou un autre patch)
+        const p = el.style.getPropertyValue("--custom-gradient-color-1");
+        const s = el.style.getPropertyValue("--custom-gradient-color-2");
+        if (p && s) {
+            el.dataset.fsbGradient = "1";
+            const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
+            if (nameSpan && !nameSpan.dataset.fsbGradientName) {
+                nameSpan.dataset.fsbGradientName = "1";
+                discoverGradientClasses();
+                if (gradientClass) nameSpan.classList.add(gradientClass);
+                if (usernameGradientClass) nameSpan.classList.add(usernameGradientClass);
+            }
+            return;
+        }
+        // Cas B : color inline
         const raw = el.style.color;
         if (!raw) return;
         const g = rgbToGradient.get(normalizeColor(raw));
         if (g) applyGradientToContainer(el, g);
     });
 
-    // 2. nameContainer qui a déjà des CSS vars mais pas encore data-fsb-gradient
-    document.querySelectorAll<HTMLElement>(
-        'span[class*="nameContainer"]:not([data-fsb-gradient])'
-    ).forEach(el => {
-        const p = el.style.getPropertyValue("--custom-gradient-color-1");
-        const s = el.style.getPropertyValue("--custom-gradient-color-2");
-        if (!p || !s) return;
-        el.dataset.fsbGradient = "1";
-        const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
-        if (nameSpan && !nameSpan.dataset.fsbGradientName) {
-            nameSpan.dataset.fsbGradientName = "1";
-            discoverGradientClasses();
-            if (gradientClass) nameSpan.classList.add(gradientClass);
-            if (usernameGradientClass) nameSpan.classList.add(usernameGradientClass);
-        }
-    });
-
-    // 3. span.username_ dans les headers de messages
+    // 2. span.username_ dans les headers de messages
     document.querySelectorAll<HTMLElement>(
         'span[class*="username_"]:not([data-fsb-gradient])'
     ).forEach(el => {
         if (el.closest("[data-fsb-gradient]")) return;
+        // Cas A : CSS vars déjà posées nativement par Discord (sans style.color)
+        markUsernameGradientFromVars(el);
+        if (el.dataset.fsbGradient) return;
+        // Cas B : color inline
         const raw = el.dataset.originalColor || el.style.color;
         if (!raw) return;
         const g = rgbToGradient.get(normalizeColor(raw));
         if (g) applyGradientToUsernameSpan(el, g);
     });
 
-    // 4. <a> anchor : chercher le nameContainer enfant
+    // 3. <a> anchor : chercher le nameContainer enfant
     document.querySelectorAll<HTMLAnchorElement>(
         'a[class*="anchor"]:not([data-fsb-anchor-checked])'
     ).forEach(a => {
@@ -1720,17 +693,20 @@ export function applyGradientToNames() {
         if (container && !container.dataset.fsbGradient) applyGradientToContainer(container, g);
     });
 
-    // 5. Éléments génériques colorés (mentions, voice, reactors, poll…)
+    // 4. Éléments génériques colorés (mentions, voice, reactors, poll…)
     // Scope restreint aux conteneurs connus pour éviter un scan global du DOM
-    const coloredScopes = document.querySelectorAll<HTMLElement>(
-        '[class*="members_"] span:not([data-fsb-gradient]), ' +
-        '[class*="voiceUser"] span:not([data-fsb-gradient]), ' +
-        '[class*="voiceUser"] div:not([data-fsb-gradient]), ' +
-        '[class*="messageContent"] span:not([data-fsb-gradient]), ' +
-        '[class*="messageContent"] strong:not([data-fsb-gradient]), ' +
-        '[class*="reactors"] span:not([data-fsb-gradient]), ' +
-        '[class*="poll"] span:not([data-fsb-gradient])'
-    );
+    // Utilisation de :scope pour limiter la profondeur
+    const GENERIC_SCOPES = [
+        '[class*="members_"] span:not([data-fsb-gradient])',
+        '[class*="voiceUser"] span:not([data-fsb-gradient])',
+        '[class*="voiceUser"] div:not([data-fsb-gradient])',
+        '[class*="messageContent"] span:not([data-fsb-gradient])',
+        '[class*="messageContent"] strong:not([data-fsb-gradient])',
+        '[class*="reactors"] span:not([data-fsb-gradient])',
+        '[class*="poll"] span:not([data-fsb-gradient])',
+    ] as const;
+
+    const coloredScopes = document.querySelectorAll<HTMLElement>(GENERIC_SCOPES.join(", "));
     coloredScopes.forEach(el => {
         if (el.closest("[data-fsb-gradient]")) return;
         if (
@@ -1753,8 +729,7 @@ export function applyGradientToNames() {
         }
     });
 
-    // 6. Propager la CSS var au div.container parent des voice chat
-    // (cas 0b a tourné avant que le gradient soit appliqué par le cas 5)
+    // 5. Propager la CSS var au div.container parent des voice chat
     document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(usernameContainer => {
         const gradDiv = usernameContainer.querySelector<HTMLElement>("[data-fsb-gradient]");
         if (!gradDiv) return;
@@ -1768,14 +743,28 @@ export function applyGradientToNames() {
         }
     });
 
-    // 7. Effets spéciaux par rôle
-    applyBirthdayEffect();
-    applyNetricsaEffect();
-    applyKlodovikEffect();
-    applyGoldenEffect();
-    applySilverEffect();
-    applyBronzeEffect();
-    applyCelestialEffect();
+    // 6. Effets spéciaux enregistrés par les plugins dépendants (Birthday, Netricsa, Klodovik…)
+    for (const effect of registeredEffects.values()) {
+        // Optimisation : si l'effet déclare une couleur primaire et qu'aucun élément
+        // gradienté avec cette couleur n'est présent dans le DOM, on saute l'appel.
+        if (effect.primaryRGB && !rgbToGradient.has(effect.primaryRGB)) continue;
+        effect.applyFn();
+    }
+}
+
+// Cache des guildIds pour éviter d'appeler GuildStore.getGuilds() à chaque lookup
+let cachedGuildIds: string[] = [];
+let guildIdsCacheTime = 0;
+const GUILD_IDS_TTL = 5000; // 5 secondes
+
+function getGuildIds(): string[] {
+    const now = Date.now();
+    if (now - guildIdsCacheTime < GUILD_IDS_TTL) return cachedGuildIds;
+    try {
+        cachedGuildIds = Object.keys(GuildStore.getGuilds());
+        guildIdsCacheTime = now;
+    } catch { /* GuildStore pas encore prêt */ }
+    return cachedGuildIds;
 }
 
 /** Extrait le texte visible d'un nœud [aria-hidden] de catégorie (sans compter les icônes injectées) */
@@ -1826,7 +815,7 @@ function getCategoryRoleId(ariaHiddenContainer: HTMLElement): string | null {
         const visibleText = getCategoryVisibleText(ariaHiddenContainer);
         if (visibleText) {
             let roleName: string | null = null;
-            for (const guildId of Object.keys(GuildStore.getGuilds())) {
+            for (const guildId of getGuildIds()) {
                 const r = GuildRoleStore.getRole(guildId, candidateId);
                 if (r?.name) { roleName = r.name.toLowerCase(); break; }
             }
@@ -1849,7 +838,7 @@ function injectCategoryRoleIcon(ariaHiddenContainer: HTMLElement, roleId: string
 
     let role: any = null;
     try {
-        for (const guildId of Object.keys(GuildStore.getGuilds())) {
+        for (const guildId of getGuildIds()) {
             const r = GuildRoleStore.getRole(guildId, resolvedRoleId);
             if (r) { role = r; break; }
         }
@@ -2022,19 +1011,40 @@ function startDomObserver() {
     // Ensemble de nœuds à traiter accumulés entre mutations, vidé à chaque RAF
     const pendingRoots = new Set<HTMLElement>();
     let rafId: number | null = null;
+    let fullScanScheduled = false;
+    // Délai minimum entre deux full scans (ms) pour éviter la tempête lors du scroll de liste
+    let lastFullScan = 0;
+    const FULL_SCAN_THROTTLE = 200;
 
     function scheduleApply(root: HTMLElement | null) {
-        // root = null signifie "tout le DOM" (fallback)
-        pendingRoots.add(root ?? document.body);
+        if (root === null) {
+            fullScanScheduled = true;
+        } else {
+            pendingRoots.add(root);
+        }
         if (rafId !== null) return;
         rafId = requestAnimationFrame(() => {
             rafId = null;
+            const doFullScan = fullScanScheduled;
+            fullScanScheduled = false;
             const roots = Array.from(pendingRoots);
             pendingRoots.clear();
 
-            const fullScan = roots.includes(document.body);
-            if (fullScan) {
-                // Reset toutes les catégories avant le full scan pour forcer une réévaluation
+            if (doFullScan) {
+                const now = Date.now();
+                if (now - lastFullScan < FULL_SCAN_THROTTLE) {
+                    // Trop tôt pour un nouveau full scan — reporter à la prochaine frame
+                    fullScanScheduled = true;
+                    rafId = requestAnimationFrame(() => {
+                        rafId = null;
+                        fullScanScheduled = false;
+                        lastFullScan = Date.now();
+                        document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
+                        applyGradientToNames();
+                    });
+                    return;
+                }
+                lastFullScan = now;
                 document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
                 applyGradientToNames();
                 return;
@@ -2049,8 +1059,6 @@ function startDomObserver() {
                     if (current === null) return;
                     if (stored !== current) resetCatEl(el);
 
-                    // Appliquer le gradient sur le span texte enfant si pas encore fait
-                    // (même logique que la section 5 de applyGradientToNames)
                     el.querySelectorAll<HTMLElement>("span:not([data-fsb-gradient]), strong:not([data-fsb-gradient])").forEach(span => {
                         if (span.closest("[data-fsb-gradient]")) return;
                         if (span.querySelector("img, svg, span")) return;
@@ -2060,7 +1068,6 @@ function startDomObserver() {
                         if (g) applyGradientToGenericEl(span, g);
                     });
 
-                    // Propager --custom-gradient-color-1 depuis le span enfant vers ce div
                     const gradSpan = el.querySelector<HTMLElement>("[data-fsb-gradient]");
                     if (gradSpan) {
                         const c1 = gradSpan.style.getPropertyValue("--custom-gradient-color-1");
@@ -2084,10 +1091,31 @@ function startDomObserver() {
                 // username_ headers dans ce root
                 root.querySelectorAll<HTMLElement>('span[class*="username_"]:not([data-fsb-gradient])').forEach(el => {
                     if (el.closest("[data-fsb-gradient]")) return;
+                    // Cas A : CSS vars déjà posées nativement par Discord
+                    markUsernameGradientFromVars(el);
+                    if (el.dataset.fsbGradient) return;
+                    // Cas B : color inline
                     const raw = el.style.color;
                     if (!raw) return;
                     const g = rgbToGradient.get(normalizeColor(raw));
                     if (g) applyGradientToUsernameSpan(el, g);
+                });
+
+                // Réordonner l'icône de rôle avant le clan tag dans les nouveaux headers
+                root.querySelectorAll<HTMLElement>('span[class*="headerText"]:not([data-fsb-role-reordered])').forEach(headerText => {
+                    const clanTagSpan = Array.from(headerText.children).find(child =>
+                        child.querySelector('[class*="chipletContainerInner"]')
+                    ) as HTMLElement | undefined;
+                    if (!clanTagSpan) { headerText.dataset.fsbRoleReordered = "1"; return; }
+                    const roleIconSpan = Array.from(headerText.children).find(child =>
+                        child !== clanTagSpan && child.querySelector('img[class*="roleIcon"]')
+                    ) as HTMLElement | undefined;
+                    if (!roleIconSpan) return;
+                    const children = Array.from(headerText.children);
+                    const clanIdx = children.indexOf(clanTagSpan);
+                    const roleIdx = children.indexOf(roleIconSpan);
+                    if (roleIdx > clanIdx) headerText.insertBefore(roleIconSpan, clanTagSpan);
+                    headerText.dataset.fsbRoleReordered = "1";
                 });
 
                 // Voice containers dans ce root
@@ -2097,25 +1125,36 @@ function startDomObserver() {
                 });
             }
 
-            // Birthday toujours sur tout le DOM visible (peu d'éléments)
-            applyBirthdayEffect();
+            // Effets custom sur tout le DOM visible (peu d'éléments concernés)
+            for (const effect of registeredEffects.values()) {
+                effect.applyFn();
+            }
         });
     }
 
     domObserver = new MutationObserver(mutations => {
         let membersZoneChanged = false;
+        // Compteur de mutations "réelles" (hors nos propres injections de style)
+        let realMutations = 0;
 
         for (const m of mutations) {
             if (m.type !== "childList") continue;
             if (m.addedNodes.length === 0 && m.removedNodes.length === 0) continue;
 
-            // Ignorer nos propres injections (role icons, bday stars)
-            const isOurMutation = Array.from(m.addedNodes).concat(Array.from(m.removedNodes)).some(n => {
-                if (!(n instanceof HTMLElement)) return false;
-                return n.dataset?.fsbRoleIcon !== undefined || n.dataset?.fsbBdayStar !== undefined;
+            // Ignorer nos propres injections (role icons, bday stars, CSS vars)
+            const allNodes = [...Array.from(m.addedNodes), ...Array.from(m.removedNodes)];
+            const isOurMutation = allNodes.every(n => {
+                if (!(n instanceof HTMLElement)) return true; // nœuds texte → ignorer
+                return n.dataset?.fsbRoleIcon !== undefined
+                    || n.dataset?.fsbBdayStar !== undefined
+                    || n.dataset?.fsbCstar !== undefined
+                    || n.dataset?.fsbCelestialWrap !== undefined
+                    || n.id?.startsWith("fsb-effect-")
+                    || n.id === "fakeServerBoost-gradient-names";
             });
             if (isOurMutation) continue;
 
+            realMutations++;
             const target = m.target as HTMLElement;
 
             // Nettoyage des marqueurs sur nœuds retirés
@@ -2159,6 +1198,23 @@ function startDomObserver() {
 
             // Pour les autres mutations (messages, voice), traitement ciblé
             if (!hasMembersGroupChange) {
+                // Eviter de scanner des mutations purement internes à Discord
+                // (style updates, attribute changes sur éléments sans rapport)
+                const isRelevant = allNodes.some(n => {
+                    if (!(n instanceof HTMLElement)) return false;
+                    // Si le nœud ajouté/retiré contient un nameContainer, username_, ou voiceUser → pertinent
+                    return n.matches?.('[class*="nameContainer"]')
+                        || n.matches?.('[class*="username_"]')
+                        || n.matches?.('[class*="messageListItem"]')
+                        || n.matches?.('[class*="voiceUser"]')
+                        || n.matches?.('[class*="cozy"]')
+                        || n.querySelector?.('[class*="nameContainer"],[class*="username_"]') !== null;
+                }) || target.closest?.('[class*="messageListItem"]') !== null
+                  || target.closest?.('[class*="voiceUsers_"]') !== null
+                  || target.closest?.('[class*="chat_"]') !== null;
+
+                if (!isRelevant) continue;
+
                 const scopeRoot =
                     target.closest<HTMLElement>('[class*="voiceUsers_"]') ??
                     target.closest<HTMLElement>('[class*="messageListItem"]') ??
@@ -2167,6 +1223,9 @@ function startDomObserver() {
                 scheduleApply(scopeRoot);
             }
         }
+
+        // Si aucune mutation réelle → sortir
+        if (realMutations === 0) return;
 
         // Une seule entrée pour toute la zone membres si nécessaire
         if (membersZoneChanged) {
@@ -2177,81 +1236,35 @@ function startDomObserver() {
     domObserver.observe(document.body, { childList: true, subtree: true });
 
     // Flux : GUILD_MEMBER_UPDATE / VOICE_STATE_UPDATE → reset ciblé + re-scan
+    let memberUpdateTimer: ReturnType<typeof setTimeout> | null = null;
     const onMemberOrVoiceUpdate = () => {
-        // Reset catégories
-        document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
+        // Debounce : regrouper les mises à jour en rafale (ex: plusieurs joins voice simultanés)
+        if (memberUpdateTimer) return;
+        memberUpdateTimer = setTimeout(() => {
+            memberUpdateTimer = null;
+            // Reset catégories
+            document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
 
-        // Reset voice
-        document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => {
-            el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-            delete el.dataset.fsbVoiceChecked;
-            delete el.dataset.fsbBirthday;
-            delete el.dataset.fsbCustomAnim;
-        });
-
-        // Reset éléments avec effets spéciaux (birthday, netricsa…)
-        document.querySelectorAll<HTMLElement>("[data-fsb-birthday]").forEach(el => {
-            el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-            delete el.dataset.fsbBirthday;
-            delete el.dataset.fsbCustomAnim;
-            el.style.removeProperty("--custom-gradient-color-1");
-            el.style.removeProperty("--custom-gradient-color-2");
-            el.style.removeProperty("--custom-gradient-color-3");
-            delete el.dataset.fsbGradient;
-            delete el.dataset.fsbText;
-            const nameSpan = el.querySelector<HTMLElement>("[data-fsb-gradient-name]");
-            if (nameSpan) {
-                if (gradientClass) nameSpan.classList.remove(gradientClass);
-                if (usernameGradientClass) nameSpan.classList.remove(usernameGradientClass);
-                delete nameSpan.dataset.fsbGradientName;
-            }
-            const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
-            if (headerText) {
-                headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
-                delete headerText.dataset.fsbBirthdayHeader;
-                delete headerText.dataset.fsbCustomAnim;
-                headerText.style.removeProperty("--custom-gradient-color-1");
-                delete headerText.dataset.fsbHeaderVars;
-            }
-        });
-        document.querySelectorAll<HTMLElement>("[data-fsb-netricsa]").forEach(el => {
-            delete el.dataset.fsbNetricsa;
-            delete el.dataset.fsbCustomAnim;
-            const headerText = el.closest<HTMLElement>("span[data-fsb-netricsa-header]");
-            if (headerText) {
-                delete headerText.dataset.fsbNetricsaHeader;
-                delete headerText.dataset.fsbCustomAnim;
-            }
-        });
-        document.querySelectorAll<HTMLElement>("[data-fsb-klodovik]").forEach(el => {
-            delete el.dataset.fsbKlodovik;
-            delete el.dataset.fsbCustomAnim;
-            const headerText = el.closest<HTMLElement>("span[data-fsb-klodovik-header]");
-            if (headerText) { delete headerText.dataset.fsbKlodovikHeader; delete headerText.dataset.fsbCustomAnim; }
-        });
-        for (const effect of SIMPLE_EFFECTS) {
-            const attrStr = effect.key.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`).replace(/^fsb/, "data-fsb");
-            document.querySelectorAll<HTMLElement>(`[${attrStr}]`).forEach(el => {
-                delete (el.dataset as any)[effect.key];
+            // Reset voice
+            document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => {
+                delete el.dataset.fsbVoiceChecked;
                 delete el.dataset.fsbCustomAnim;
-                const hKey = effect.headerKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`);
-                const headerText = el.closest<HTMLElement>(`[data-${hKey}]`);
-                if (headerText) { delete (headerText.dataset as any)[effect.headerKey]; delete headerText.dataset.fsbCustomAnim; }
             });
-        }
-        document.querySelectorAll<HTMLElement>("[data-fsb-celestial]").forEach(el => {
-            cleanCelestialEl(el);
-            const headerText = el.closest<HTMLElement>("span[data-fsb-celestial-header]");
-            if (headerText) { delete headerText.dataset.fsbCelestialHeader; delete headerText.dataset.fsbCustomAnim; }
-        });
 
-        scheduleApply(null); // full scan après reset
+            // Laisser chaque effet custom se nettoyer lui-même
+            for (const effect of registeredEffects.values()) {
+                effect.cleanupFn();
+            }
+
+            scheduleApply(null); // full scan après reset
+        }, 80);
     };
 
     for (const event of ["GUILD_MEMBER_UPDATE", "VOICE_STATE_UPDATE"] as const) {
         FluxDispatcher.subscribe(event, onMemberOrVoiceUpdate);
     }
     (domObserver as any)._fluxUnsub = () => {
+        if (memberUpdateTimer) { clearTimeout(memberUpdateTimer); memberUpdateTimer = null; }
         for (const event of ["GUILD_MEMBER_UPDATE", "VOICE_STATE_UPDATE"] as const) {
             FluxDispatcher.unsubscribe(event, onMemberOrVoiceUpdate);
         }
@@ -2524,17 +1537,22 @@ function onChannelSelect({ guildId }: { guildId?: string | null; }) {
     lastGuildId = currentGuildId;
 
     // Réinitialiser les icônes de catégorie SEULEMENT si le guild a changé
+    // (les nœuds sont recyclés par la virtualisation de Discord)
     if (guildChanged) {
         document.querySelectorAll<HTMLElement>("[data-fsb-cat-checked]").forEach(el => {
             el.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
             delete el.dataset.fsbCatChecked;
         });
+        // Réinitialiser aussi les ancres et voice containers
+        document.querySelectorAll<HTMLElement>("[data-fsb-anchor-checked]").forEach(el => delete el.dataset.fsbAnchorChecked);
+        document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => {
+            delete el.dataset.fsbVoiceChecked;
+            delete el.dataset.fsbCustomAnim;
+        });
+        document.querySelectorAll<HTMLElement>("[data-fsb-role-reordered]").forEach(el => delete el.dataset.fsbRoleReordered);
     }
-
-    // Délai pour laisser Discord finir son render initial, puis forcer un re-render avec nos données injectées
-    setTimeout(() => {
-        try { (GuildMemberStore as any).emitChange(); } catch { /* ignore */ }
-    }, 150);
+    // Pas d'emitChange() ici — trop coûteux (re-render de tous les membres).
+    // Le MutationObserver prend en charge le re-scan naturellement.
 }
 
 export default definePlugin({

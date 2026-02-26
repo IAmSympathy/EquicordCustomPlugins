@@ -12,7 +12,15 @@ import { GuildStore } from "@webpack/common";
 import backgroundImageB64 from "file://./assets/background.png?base64";
 import bannerB64 from "file://./assets/banner.png?base64";
 
-import { applyGradientToNames, registerHardcodedRoleColors, RoleColorData, unregisterHardcodedRoleColors } from "../fakeServerBoost";
+import {
+    CustomEffect,
+    normalizeColor,
+    registerCustomEffect,
+    registerHardcodedRoleColors,
+    RoleColorData,
+    unregisterCustomEffect,
+    unregisterHardcodedRoleColors,
+} from "../fakeServerBoost";
 
 const BACKGROUND_DATA_URL = backgroundImageB64 ? `data:image/png;base64,${backgroundImageB64}` : "";
 
@@ -20,6 +28,7 @@ const BACKGROUND_DATA_URL = backgroundImageB64 ? `data:image/png;base64,${backgr
 const HARDCODED_GUILD_ID = "827364829567647774";
 const BANNER_DATA_URL = bannerB64 ? `data:image/png;base64,${bannerB64}` : "";
 let bannerStyleElement: HTMLStyleElement | null = null;
+let bgStyleElement: HTMLStyleElement | null = null;
 let originalGetGuild: any;
 let originalGetGuilds: any;
 
@@ -149,6 +158,14 @@ const settings = definePluginSettings({
 // ── Bannière hardcodée ────────────────────────────────────────────────────────
 
 function applyHardcodedBanner() {
+    // Injecter la CSS var de background Netricsa une seule fois (évite de répéter ~200Ko de base64 dans chaque overlay div)
+    if (BACKGROUND_DATA_URL && !bgStyleElement) {
+        bgStyleElement = document.createElement("style");
+        bgStyleElement.id = "notSoSeriousCord-netricsa-bg";
+        bgStyleElement.textContent = `:root { --vc-netricsa-bg: url("${BACKGROUND_DATA_URL}"); }`;
+        document.head.appendChild(bgStyleElement);
+    }
+
     if (!BANNER_DATA_URL) return;
     if (bannerStyleElement) bannerStyleElement.remove();
     bannerStyleElement = document.createElement("style");
@@ -175,6 +192,8 @@ function applyHardcodedBanner() {
 function removeHardcodedBanner() {
     bannerStyleElement?.remove();
     bannerStyleElement = null;
+    bgStyleElement?.remove();
+    bgStyleElement = null;
     if (originalGetGuild && GuildStore?.getGuild) { GuildStore.getGuild = originalGetGuild; originalGetGuild = null; }
     if (originalGetGuilds && GuildStore?.getGuilds) { GuildStore.getGuilds = originalGetGuilds; originalGetGuilds = null; }
 }
@@ -276,7 +295,6 @@ function colorizeNode(node: Node, r: number, g: number, b: number, glow: boolean
 
 function applyComponentV2Background(compV2: HTMLElement): void {
     if (!BACKGROUND_DATA_URL) return;
-    // Le conteneur visuel avec la barre de couleur gauche
     const card = (compV2.querySelector('[class*="withAccentColor"]') as HTMLElement | null)
         ?? (compV2.firstElementChild as HTMLElement | null)
         ?? compV2;
@@ -285,21 +303,21 @@ function applyComponentV2Background(compV2: HTMLElement): void {
 
 function applyEmbedBackground(embed: HTMLElement, preserveLeftBorder = false): void {
     if (!BACKGROUND_DATA_URL || embed.dataset.vcBgApplied) return;
-    const pos = window.getComputedStyle(embed).position;
-    if (pos === "static") embed.style.position = "relative";
-    // Si preserveLeftBorder, on mesure la largeur réelle du border-left pour ne pas le recouvrir
-    const leftOffset = preserveLeftBorder
-        ? (parseInt(window.getComputedStyle(embed).borderLeftWidth, 10) || 4) + "px"
-        : "0";
+    // Pas de getComputedStyle (reflow) — on force position:relative systématiquement
+    // si l'élément n'a pas déjà une position non-static via un style inline.
+    if (!embed.style.position || embed.style.position === "static") {
+        embed.style.position = "relative";
+    }
+    const leftOffset = preserveLeftBorder ? "4px" : "0";
     const bg = document.createElement("div");
     bg.setAttribute("data-vc-bg-overlay", "1");
     bg.style.cssText = [
-        "position: absolute",
-        "top: 0", "right: 0", "bottom: 0", `left: ${leftOffset}`,
-        `background-image: url("${BACKGROUND_DATA_URL}")`,
-        "background-size: cover", "background-position: center", "background-repeat: no-repeat",
-        "filter: brightness(1)", "pointer-events: none", "z-index: 0",
-        preserveLeftBorder ? "border-radius: 0 inherit inherit 0" : "border-radius: inherit",
+        "position:absolute",
+        "top:0", "right:0", "bottom:0", `left:${leftOffset}`,
+        "background-image:var(--vc-netricsa-bg)",
+        "background-size:cover", "background-position:center", "background-repeat:no-repeat",
+        "pointer-events:none", "z-index:0",
+        preserveLeftBorder ? "border-radius:0 inherit inherit 0" : "border-radius:inherit",
     ].join(";");
     embed.insertBefore(bg, embed.firstChild);
     for (const child of Array.from(embed.children)) {
@@ -389,7 +407,7 @@ function applyBotRoleColor() {
     applyBotRoleColorToReplies();
     applyToOrphanEmbeds();
     applyToOrphanComponentsV2();
-    applyGradientToNames();
+    // Note: applyGradientToNames() est appelé par fakeServerBoost dans son propre RAF — ne pas le doubler ici
 }
 
 function applyToOrphanEmbeds() {
@@ -509,7 +527,6 @@ function resetAllBotColors(): void {
     });
     document.querySelectorAll("[data-vc-comp-v2-applied]").forEach((el: Element) => {
         const compV2 = el as HTMLElement;
-        // Le bg-overlay peut être sur un sous-élément (la card withAccentColor)
         const cardWithBg = (compV2.querySelector("[data-vc-bg-applied]") as HTMLElement | null) ?? compV2;
         cardWithBg.querySelector("[data-vc-bg-overlay]")?.remove();
         cardWithBg.style.position = "";
@@ -530,6 +547,739 @@ function resetAllBotColors(): void {
     });
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Effets custom pour les rôles du serveur
+// Chaque effet est enregistré dans fakeServerBoost via registerCustomEffect()
+// ══════════════════════════════════════════════════════════════════════════════
+
+const BIRTHDAY_PRIMARY_RGB = "rgb(255, 0, 149)";   // #ff0095
+const NETRICSA_PRIMARY_RGB  = "rgb(36, 148, 219)";  // #2494db
+const KLODOVIK_PRIMARY_RGB  = "rgb(86, 253, 13)";   // #56fd0d
+const GOLDEN_PRIMARY_RGB    = "rgb(191, 155, 48)";  // #bf9b30
+const SILVER_PRIMARY_RGB    = "rgb(192, 192, 192)"; // #c0c0c0
+const BRONZE_PRIMARY_RGB    = "rgb(160, 88, 34)";   // #a05822
+const CELESTIAL_PRIMARY_RGB = "rgb(168, 85, 247)";  // #a855f7
+
+// ── 🎂 HAPPY BIRTHDAY ────────────────────────────────────────────────────────
+
+function cleanBirthdayEl(el: HTMLElement) {
+    el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+    delete el.dataset.fsbBirthday;
+    delete el.dataset.fsbCustomAnim;
+}
+
+function applyBirthdayEffect() {
+    // Nettoyage
+    document.querySelectorAll<HTMLElement>("span[data-fsb-birthday]").forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) {
+            cleanBirthdayEl(el);
+            const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
+            if (headerText) {
+                headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+                delete headerText.dataset.fsbBirthdayHeader;
+                delete headerText.dataset.fsbCustomAnim;
+            }
+        }
+    });
+    document.querySelectorAll<HTMLElement>("span[data-fsb-birthday-header]").forEach(headerText => {
+        const username = headerText.querySelector<HTMLElement>("span[data-fsb-birthday]");
+        if (!username) {
+            headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+            delete headerText.dataset.fsbBirthdayHeader;
+            delete headerText.dataset.fsbCustomAnim;
+        }
+    });
+
+    // 1. nameContainer
+    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-birthday])').forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+        el.dataset.fsbBirthday = "1";
+        el.dataset.fsbCustomAnim = "1";
+        const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
+        if (nameSpan && !el.querySelector('[data-fsb-bday-star="l"]')) {
+            const starL = document.createElement("span");
+            starL.dataset.fsbBdayStar = "l";
+            starL.textContent = "✨";
+            starL.style.cssText = "font-size:11px;margin-right:3px;vertical-align:middle;";
+            el.insertBefore(starL, nameSpan);
+            const starR = document.createElement("span");
+            starR.dataset.fsbBdayStar = "r";
+            starR.textContent = "🎉";
+            starR.style.cssText = "font-size:11px;margin-left:3px;vertical-align:middle;";
+            el.appendChild(starR);
+        }
+    });
+
+    // 2. username_ header
+    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-birthday])').forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+        el.dataset.fsbBirthday = "1";
+        el.dataset.fsbCustomAnim = "1";
+        const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
+        if (headerText) {
+            headerText.dataset.fsbBirthdayHeader = "1";
+            headerText.dataset.fsbCustomAnim = "1";
+        }
+        if (headerText && !headerText.querySelector("[data-fsb-bday-star]")) {
+            const usernameWrapper = (el.parentElement?.parentElement === headerText
+                ? el.parentElement
+                : el.parentElement === headerText
+                    ? el
+                    : null) ?? el;
+            const starL = document.createElement("span");
+            starL.dataset.fsbBdayStar = "l";
+            starL.textContent = "✨";
+            starL.style.cssText = "font-size:11px;vertical-align:middle;margin-right:2px;";
+            headerText.insertBefore(starL, usernameWrapper);
+            const starR = document.createElement("span");
+            starR.dataset.fsbBdayStar = "r";
+            starR.textContent = "🎉";
+            starR.style.cssText = "font-size:11px;vertical-align:middle;margin-left:2px;";
+            usernameWrapper.after(starR);
+        }
+    });
+
+    // 3. Catégorie membres
+    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-birthday])').forEach(ariaHidden => {
+        const c1 = ariaHidden.style.getPropertyValue("--custom-gradient-color-1");
+        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+        ariaHidden.dataset.fsbBirthday = "1";
+        ariaHidden.dataset.fsbCustomAnim = "1";
+    });
+
+    // 4. Voice chat
+    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]').forEach(container => {
+        const voiceContainer = container.parentElement;
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+        Array.from(container.querySelectorAll<HTMLElement>("[data-fsb-bday-star]"))
+            .filter(s => s.parentElement !== gradDiv)
+            .forEach(s => { s.remove(); delete container.dataset.fsbBirthday; delete container.dataset.fsbCustomAnim; });
+        if (voiceContainer?.dataset.fsbVoiceContainer) {
+            Array.from(voiceContainer.querySelectorAll<HTMLElement>("[data-fsb-bday-star]"))
+                .filter(s => s.parentElement === voiceContainer)
+                .forEach(s => { s.remove(); delete container.dataset.fsbBirthday; delete container.dataset.fsbCustomAnim; });
+        }
+        if (container.dataset.fsbBirthday && gradDiv && !gradDiv.querySelector("[data-fsb-bday-star]")) {
+            delete container.dataset.fsbBirthday;
+            delete container.dataset.fsbCustomAnim;
+        }
+        if (container.dataset.fsbBirthday) return;
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
+            ?? container.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+        container.dataset.fsbBirthday = "1";
+        container.dataset.fsbCustomAnim = "1";
+        if (voiceContainer?.dataset.fsbVoiceContainer) {
+            voiceContainer.dataset.fsbBirthdayVoice = "1";
+            voiceContainer.dataset.fsbCustomAnim = "1";
+        }
+        if (gradDiv && !gradDiv.querySelector("[data-fsb-bday-star]")) {
+            const textNode = gradDiv.querySelector("[data-fsb-mention-text]") ?? gradDiv.firstChild;
+            const starL = document.createElement("span");
+            starL.dataset.fsbBdayStar = "l";
+            starL.textContent = "✨";
+            starL.style.cssText = "font-size:10px;margin-right:2px;vertical-align:middle;";
+            if (textNode) gradDiv.insertBefore(starL, textNode);
+            else gradDiv.prepend(starL);
+            const starR = document.createElement("span");
+            starR.dataset.fsbBdayStar = "r";
+            starR.textContent = "🎉";
+            starR.style.cssText = "font-size:10px;margin-left:2px;vertical-align:middle;";
+            const roleIcon = gradDiv.querySelector<HTMLElement>("[data-fsb-role-icon]");
+            if (roleIcon) gradDiv.insertBefore(starR, roleIcon);
+            else gradDiv.append(starR);
+        }
+    });
+}
+
+function cleanupBirthdayEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-birthday]").forEach(el => cleanBirthdayEl(el));
+    document.querySelectorAll<HTMLElement>("[data-fsb-birthday-header]").forEach(el => {
+        el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+        delete el.dataset.fsbBirthdayHeader;
+        delete el.dataset.fsbCustomAnim;
+    });
+    document.querySelectorAll<HTMLElement>("[data-fsb-birthday-voice]").forEach(el => {
+        delete el.dataset.fsbBirthdayVoice;
+        delete el.dataset.fsbCustomAnim;
+    });
+}
+
+const BIRTHDAY_CSS = `
+    div[class*="member__"]:hover span[data-fsb-birthday] span[class*="name__"],
+    li[class*="messageListItem"]:hover span[data-fsb-birthday] span[class*="name__"],
+    div[role="article"]:hover span[data-fsb-birthday] span[class*="name__"],
+    a:hover span[data-fsb-birthday] span[class*="name__"],
+    span[data-fsb-birthday]:hover span[class*="name__"] {
+        animation: fsb-bday-scroll 0.65s linear infinite !important;
+        background-image: linear-gradient(to right, #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095) !important;
+        background-size: 300px auto !important;
+    }
+    @keyframes fsb-bday-scroll { from { background-position: 0 50%; } to { background-position: 300px 50%; } }
+    div[role="article"]:hover span[class*="username_"][data-fsb-birthday],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-birthday] {
+        animation: fsb-bday-scroll 0.65s linear infinite !important;
+        background-image: linear-gradient(to right, #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095) !important;
+        background-size: 300px auto !important;
+    }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-birthday-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-birthday-header] {
+        filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
+    }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-birthday-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-birthday-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-birthday],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-birthday] { filter: none !important; }
+    div[class*="member__"]:hover span[data-fsb-birthday] { filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important; }
+    div[class*="members_"]:hover div[data-fsb-birthday] span[data-fsb-gradient] {
+        animation: fsb-bday-scroll 0.65s linear infinite !important;
+        background-image: linear-gradient(to right, #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="members_"]:hover div[data-fsb-birthday] { filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important; }
+    div[class*="usernameContainer_"][data-fsb-birthday] { overflow: visible !important; }
+    div[class*="voiceUser"]:hover div[data-fsb-birthday] span[data-fsb-mention-text] {
+        animation: fsb-bday-scroll 0.65s linear infinite !important;
+        background-image: linear-gradient(to right, #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-birthday-voice] {
+        filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
+    }
+    [data-fsb-bday-star] {
+        display: inline-block !important; font-style: normal !important; pointer-events: none !important;
+        position: relative !important; -webkit-text-fill-color: currentcolor !important;
+        color: white !important; opacity: 1 !important; visibility: visible !important;
+        background-clip: unset !important; -webkit-background-clip: unset !important; background-image: none !important;
+    }
+    div[class*="member__"]:hover [data-fsb-bday-star], div[role="article"]:hover [data-fsb-bday-star],
+    li[class*="messageListItem"]:hover [data-fsb-bday-star],
+    div[class*="voiceUser"]:hover [data-fsb-voice-container] [data-fsb-bday-star],
+    div[class*="voiceUser"]:hover [data-fsb-bday-star] { animation: fsb-bday-star-pop 1.3s ease-in-out infinite alternate; }
+    [data-fsb-bday-star="l"] { animation-delay: 0s; }
+    [data-fsb-bday-star="r"] { animation-delay: 0.55s; }
+    @keyframes fsb-bday-star-pop {
+        from { opacity: 1; transform: scale(1.15) rotate(-15deg); }
+        to   { opacity: 1; transform: scale(0.85) rotate(15deg); }
+    }
+`;
+
+// ── 🧠 NETRICSA ───────────────────────────────────────────────────────────────
+
+function applyNetricsaEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-netricsa]").forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) {
+            delete el.dataset.fsbNetricsa; delete el.dataset.fsbCustomAnim;
+            const h = el.closest<HTMLElement>("span[data-fsb-netricsa-header]");
+            if (h) { delete h.dataset.fsbNetricsaHeader; delete h.dataset.fsbCustomAnim; }
+        }
+    });
+    document.querySelectorAll<HTMLElement>("span[data-fsb-netricsa-header]").forEach(h => {
+        if (!h.querySelector("[data-fsb-netricsa]")) { delete h.dataset.fsbNetricsaHeader; delete h.dataset.fsbCustomAnim; }
+    });
+    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
+        el.dataset.fsbNetricsa = "1"; el.dataset.fsbCustomAnim = "1";
+    });
+    // Détection des username_ via CSS vars OU via data-original-color (pour les bots avec desaturateUserColors)
+    document.querySelectorAll<HTMLElement>('span[class*="username_"]:not([data-fsb-netricsa])').forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        const isViaGradient = el.dataset.fsbGradient && normalizeColor(c1) === NETRICSA_PRIMARY_RGB;
+        const isViaOriginalColor = !el.dataset.fsbGradient
+            && normalizeColor(el.dataset.originalColor || "") === NETRICSA_PRIMARY_RGB;
+        if (!isViaGradient && !isViaOriginalColor) return;
+        // Si détecté via data-original-color, poser les CSS vars et data-fsb-gradient maintenant
+        if (isViaOriginalColor) {
+            el.style.setProperty("--custom-gradient-color-1", "#2494db");
+            el.style.setProperty("--custom-gradient-color-2", "#247d90");
+            el.style.setProperty("--custom-gradient-color-3", "#2494db");
+            el.dataset.fsbGradient = "1";
+            const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
+            if (headerText && !headerText.dataset.fsbHeaderVars) {
+                headerText.style.setProperty("--custom-gradient-color-1", "#2494db");
+                headerText.dataset.fsbHeaderVars = "1";
+            }
+        }
+        el.dataset.fsbNetricsa = "1"; el.dataset.fsbCustomAnim = "1";
+        const h = el.closest<HTMLElement>('span[class*="headerText"]');
+        if (h) { h.dataset.fsbNetricsaHeader = "1"; h.dataset.fsbCustomAnim = "1"; }
+    });
+    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-netricsa])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
+        el.dataset.fsbNetricsa = "1"; el.dataset.fsbCustomAnim = "1";
+    });
+    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-netricsa])').forEach(container => {
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) return;
+        container.dataset.fsbNetricsa = "1"; container.dataset.fsbCustomAnim = "1";
+        const vc = container.parentElement;
+        if (vc?.dataset.fsbVoiceContainer) { vc.dataset.fsbNetricsaVoice = "1"; vc.dataset.fsbCustomAnim = "1"; }
+    });
+}
+
+function cleanupNetricsaEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-netricsa]").forEach(el => {
+        delete el.dataset.fsbNetricsa; delete el.dataset.fsbCustomAnim;
+        const h = el.closest<HTMLElement>("span[data-fsb-netricsa-header]");
+        if (h) { delete h.dataset.fsbNetricsaHeader; delete h.dataset.fsbCustomAnim; }
+    });
+    document.querySelectorAll<HTMLElement>("[data-fsb-netricsa-voice]").forEach(el => {
+        delete el.dataset.fsbNetricsaVoice; delete el.dataset.fsbCustomAnim;
+    });
+}
+
+const NETRICSA_CSS = `
+    @keyframes fsb-netricsa-scan { 0% { background-position: 0px 50%; } 100% { background-position: 300px 50%; } }
+    div[class*="member__"]:hover span[data-fsb-netricsa] span[class*="name__"],
+    a:hover span[data-fsb-netricsa] span[class*="name__"],
+    span[data-fsb-netricsa]:hover span[class*="name__"] {
+        animation: fsb-netricsa-scan 2s linear infinite !important;
+        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[role="article"]:hover span[class*="username_"][data-fsb-netricsa],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa] {
+        animation: fsb-netricsa-scan 2s linear infinite !important;
+        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="member__"]:hover span[data-fsb-netricsa], a:hover span[data-fsb-netricsa], span[data-fsb-netricsa]:hover { filter: drop-shadow(0 0 3px #2494db) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] { filter: drop-shadow(0 0 3px #2494db) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-netricsa],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa] { filter: none !important; }
+    div[class*="members_"]:hover div[data-fsb-netricsa] span[data-fsb-gradient] {
+        animation: fsb-netricsa-scan 2s linear infinite !important;
+        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="members_"]:hover div[data-fsb-netricsa] { filter: drop-shadow(0 0 3px #2494db) !important; }
+    div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-mention-text],
+    div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-gradient]:not([data-fsb-mention]) {
+        animation: fsb-netricsa-scan 2s linear infinite !important;
+        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-netricsa-voice] { filter: drop-shadow(0 0 3px #2494db) !important; }
+`;
+
+// ── 🦜 KLODOVIK ───────────────────────────────────────────────────────────────
+
+function applyKlodovikEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-klodovik]").forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== KLODOVIK_PRIMARY_RGB) {
+            delete el.dataset.fsbKlodovik; delete el.dataset.fsbCustomAnim;
+            const h = el.closest<HTMLElement>("span[data-fsb-klodovik-header]");
+            if (h) { delete h.dataset.fsbKlodovikHeader; delete h.dataset.fsbCustomAnim; }
+        }
+    });
+    document.querySelectorAll<HTMLElement>("span[data-fsb-klodovik-header]").forEach(h => {
+        if (!h.querySelector("[data-fsb-klodovik]")) { delete h.dataset.fsbKlodovikHeader; delete h.dataset.fsbCustomAnim; }
+    });
+    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-klodovik])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
+        el.dataset.fsbKlodovik = "1"; el.dataset.fsbCustomAnim = "1";
+    });
+    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-klodovik])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
+        el.dataset.fsbKlodovik = "1"; el.dataset.fsbCustomAnim = "1";
+        const h = el.closest<HTMLElement>('span[class*="headerText"]');
+        if (h) { h.dataset.fsbKlodovikHeader = "1"; h.dataset.fsbCustomAnim = "1"; }
+    });
+    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-klodovik])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
+        el.dataset.fsbKlodovik = "1"; el.dataset.fsbCustomAnim = "1";
+    });
+    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-klodovik])').forEach(container => {
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== KLODOVIK_PRIMARY_RGB) return;
+        container.dataset.fsbKlodovik = "1"; container.dataset.fsbCustomAnim = "1";
+        const vc = container.parentElement;
+        if (vc?.dataset.fsbVoiceContainer) { vc.dataset.fsbKlodovikVoice = "1"; vc.dataset.fsbCustomAnim = "1"; }
+    });
+}
+
+function cleanupKlodovikEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-klodovik]").forEach(el => {
+        delete el.dataset.fsbKlodovik; delete el.dataset.fsbCustomAnim;
+        const h = el.closest<HTMLElement>("span[data-fsb-klodovik-header]");
+        if (h) { delete h.dataset.fsbKlodovikHeader; delete h.dataset.fsbCustomAnim; }
+    });
+    document.querySelectorAll<HTMLElement>("[data-fsb-klodovik-voice]").forEach(el => {
+        delete el.dataset.fsbKlodovikVoice; delete el.dataset.fsbCustomAnim;
+    });
+}
+
+const KLODOVIK_CSS = `
+    @keyframes fsb-klodovik-bounce {
+        0% { transform: translateY(0); } 25% { transform: translateY(-3px); }
+        50% { transform: translateY(0); } 75% { transform: translateY(-2px); } 100% { transform: translateY(0); }
+    }
+    div[class*="member__"]:hover span[data-fsb-klodovik] span[class*="name__"],
+    a:hover span[data-fsb-klodovik] span[class*="name__"],
+    span[data-fsb-klodovik]:hover span[class*="name__"] { display: inline-block !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-klodovik],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-klodovik] { display: inline-block !important; vertical-align: middle !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
+    div[class*="member__"]:hover span[data-fsb-klodovik], a:hover span[data-fsb-klodovik], span[data-fsb-klodovik]:hover,
+    div[role="article"]:hover span[class*="headerText"][data-fsb-klodovik-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-klodovik-header] { filter: drop-shadow(0 0 3px #56fd0d) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-klodovik-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-klodovik-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-klodovik],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-klodovik] { filter: none !important; }
+    div[class*="members_"]:hover div[data-fsb-klodovik] span[data-fsb-gradient] { display: inline-block !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
+    div[class*="members_"]:hover div[data-fsb-klodovik] { filter: drop-shadow(0 0 3px #56fd0d) !important; }
+    div[class*="voiceUser"]:hover div[data-fsb-klodovik] span[data-fsb-mention-text],
+    div[class*="voiceUser"]:hover div[data-fsb-klodovik] span[data-fsb-gradient]:not([data-fsb-mention]) { display: inline-block !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-klodovik-voice] { filter: drop-shadow(0 0 3px #56fd0d) !important; }
+`;
+
+// ── 🏆 GOLDEN / 🥈 SILVER / 🥉 BRONZE ───────────────────────────────────────
+
+type SimpleEffectDef = { dataKey: string; headerKey: string; voiceKey: string; rgb: string; };
+
+const SIMPLE_EFFECT_DEFS: SimpleEffectDef[] = [
+    { dataKey: "fsbGolden", headerKey: "fsbGoldenHeader", voiceKey: "fsbGoldenVoice", rgb: GOLDEN_PRIMARY_RGB },
+    { dataKey: "fsbSilver", headerKey: "fsbSilverHeader", voiceKey: "fsbSilverVoice", rgb: SILVER_PRIMARY_RGB },
+    { dataKey: "fsbBronze", headerKey: "fsbBronzeHeader", voiceKey: "fsbBronzeVoice", rgb: BRONZE_PRIMARY_RGB },
+];
+
+function makeSimpleApply(def: SimpleEffectDef) {
+    return function () {
+        const attrStr = def.dataKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`).replace(/^fsb/, "data-fsb");
+        const selector = `[${attrStr}]`;
+        document.querySelectorAll<HTMLElement>(selector).forEach(el => {
+            const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+            if (!c1 || normalizeColor(c1) !== def.rgb) {
+                delete (el.dataset as any)[def.dataKey]; delete el.dataset.fsbCustomAnim;
+                const hAttr = def.headerKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`);
+                const h = el.closest<HTMLElement>(`[data-${hAttr}]`);
+                if (h) { delete (h.dataset as any)[def.headerKey]; delete h.dataset.fsbCustomAnim; }
+            }
+        });
+        document.querySelectorAll<HTMLElement>(`span[class*="nameContainer"][data-fsb-gradient]:not(${selector})`).forEach(el => {
+            if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== def.rgb) return;
+            (el.dataset as any)[def.dataKey] = "1"; el.dataset.fsbCustomAnim = "1";
+        });
+        document.querySelectorAll<HTMLElement>(`span[class*="username_"][data-fsb-gradient]:not(${selector})`).forEach(el => {
+            if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== def.rgb) return;
+            (el.dataset as any)[def.dataKey] = "1"; el.dataset.fsbCustomAnim = "1";
+            const h = el.closest<HTMLElement>('span[class*="headerText"]');
+            if (h) { (h.dataset as any)[def.headerKey] = "1"; h.dataset.fsbCustomAnim = "1"; }
+        });
+        document.querySelectorAll<HTMLElement>(`[aria-hidden="true"][data-fsb-cat-checked]:not(${selector})`).forEach(el => {
+            if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== def.rgb) return;
+            (el.dataset as any)[def.dataKey] = "1"; el.dataset.fsbCustomAnim = "1";
+        });
+        document.querySelectorAll<HTMLElement>(`div[class*="usernameContainer_"][data-fsb-voice-checked]:not(${selector})`).forEach(container => {
+            const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+            const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
+            if (!c1 || normalizeColor(c1) !== def.rgb) return;
+            (container.dataset as any)[def.dataKey] = "1"; container.dataset.fsbCustomAnim = "1";
+            const vc = container.parentElement;
+            if (vc?.dataset.fsbVoiceContainer) { (vc.dataset as any)[def.voiceKey] = "1"; vc.dataset.fsbCustomAnim = "1"; }
+        });
+    };
+}
+
+function makeSimpleCleanup(def: SimpleEffectDef) {
+    return function () {
+        const attrStr = def.dataKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`).replace(/^fsb/, "data-fsb");
+        const hAttrStr = def.headerKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`).replace(/^fsb/, "data-fsb");
+        const vAttrStr = def.voiceKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`).replace(/^fsb/, "data-fsb");
+        document.querySelectorAll<HTMLElement>(`[${attrStr}]`).forEach(el => {
+            delete (el.dataset as any)[def.dataKey]; delete el.dataset.fsbCustomAnim;
+            const h = el.closest<HTMLElement>(`[${hAttrStr}]`);
+            if (h) { delete (h.dataset as any)[def.headerKey]; delete h.dataset.fsbCustomAnim; }
+        });
+        document.querySelectorAll<HTMLElement>(`[${vAttrStr}]`).forEach(el => {
+            delete (el.dataset as any)[def.voiceKey]; delete el.dataset.fsbCustomAnim;
+        });
+    };
+}
+
+const MEDALS_CSS = `
+    @keyframes fsb-golden-shimmer { 0% { background-position: -300px 50%; } 100% { background-position: 300px 50%; } }
+    @keyframes fsb-silver-shimmer { 0% { background-position: -300px 50%; } 100% { background-position: 300px 50%; } }
+    @keyframes fsb-bronze-shimmer { 0% { background-position: -300px 50%; } 100% { background-position: 300px 50%; } }
+    span[data-fsb-golden][data-fsb-gradient] span[class*="name__"], span[data-fsb-golden][data-fsb-custom-anim] span[class*="name__"],
+    span[class*="username_"][data-fsb-golden][data-fsb-gradient], span[class*="username_"][data-fsb-golden][data-fsb-custom-anim] {
+        background-image: linear-gradient(to right, #bf9b30, #f7d774, #bf9b30) !important; background-size: 200px auto !important; animation: none !important;
+    }
+    span[data-fsb-silver][data-fsb-gradient] span[class*="name__"], span[data-fsb-silver][data-fsb-custom-anim] span[class*="name__"],
+    span[class*="username_"][data-fsb-silver][data-fsb-gradient], span[class*="username_"][data-fsb-silver][data-fsb-custom-anim] {
+        background-image: linear-gradient(to right, #c0c0c0, #f2f2f2, #c0c0c0) !important; background-size: 200px auto !important; animation: none !important;
+    }
+    span[data-fsb-bronze][data-fsb-gradient] span[class*="name__"], span[data-fsb-bronze][data-fsb-custom-anim] span[class*="name__"],
+    span[class*="username_"][data-fsb-bronze][data-fsb-gradient], span[class*="username_"][data-fsb-bronze][data-fsb-custom-anim] {
+        background-image: linear-gradient(to right, #a05822, #d08a4a, #a05822) !important; background-size: 200px auto !important; animation: none !important;
+    }
+    div[class*="member__"]:hover span[data-fsb-golden][data-fsb-gradient] span[class*="name__"],
+    a:hover span[data-fsb-golden][data-fsb-gradient] span[class*="name__"],
+    div[role="article"]:hover span[class*="username_"][data-fsb-golden][data-fsb-gradient],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-golden][data-fsb-gradient],
+    div[class*="members_"]:hover div[data-fsb-golden] span[data-fsb-gradient],
+    div[class*="voiceUser"]:hover div[data-fsb-golden] span[data-fsb-mention-text],
+    div[class*="voiceUser"]:hover div[data-fsb-golden] span[data-fsb-gradient]:not([data-fsb-mention]) {
+        animation: fsb-golden-shimmer 1.2s linear infinite !important;
+        background-image: linear-gradient(to right, #bf9b30 0%, #c8a435 30%, #ffffff 49%, #ffffff 51%, #c8a435 70%, #bf9b30 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="member__"]:hover span[data-fsb-silver][data-fsb-gradient] span[class*="name__"],
+    a:hover span[data-fsb-silver][data-fsb-gradient] span[class*="name__"],
+    div[role="article"]:hover span[class*="username_"][data-fsb-silver][data-fsb-gradient],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-silver][data-fsb-gradient],
+    div[class*="members_"]:hover div[data-fsb-silver] span[data-fsb-gradient],
+    div[class*="voiceUser"]:hover div[data-fsb-silver] span[data-fsb-mention-text],
+    div[class*="voiceUser"]:hover div[data-fsb-silver] span[data-fsb-gradient]:not([data-fsb-mention]) {
+        animation: fsb-silver-shimmer 1.45s linear infinite !important;
+        background-image: linear-gradient(to right, #c0c0c0 0%, #d0d0d0 30%, #ffffff 49%, #ffffff 51%, #d0d0d0 70%, #c0c0c0 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="member__"]:hover span[data-fsb-bronze][data-fsb-gradient] span[class*="name__"],
+    a:hover span[data-fsb-bronze][data-fsb-gradient] span[class*="name__"],
+    div[role="article"]:hover span[class*="username_"][data-fsb-bronze][data-fsb-gradient],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-bronze][data-fsb-gradient],
+    div[class*="members_"]:hover div[data-fsb-bronze] span[data-fsb-gradient],
+    div[class*="voiceUser"]:hover div[data-fsb-bronze] span[data-fsb-mention-text],
+    div[class*="voiceUser"]:hover div[data-fsb-bronze] span[data-fsb-gradient]:not([data-fsb-mention]) {
+        animation: fsb-bronze-shimmer 1.8s linear infinite !important;
+        background-image: linear-gradient(to right, #a05822 0%, #b86a30 30%, #f0c080 49%, #f0c080 51%, #b86a30 70%, #a05822 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="member__"]:hover span[data-fsb-golden], a:hover span[data-fsb-golden], span[data-fsb-golden]:hover { filter: drop-shadow(0 0 3px #f7d774) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-golden-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-golden-header] { filter: drop-shadow(0 0 3px #f7d774) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-golden-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-golden-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-golden],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-golden] { filter: none !important; }
+    div[class*="members_"]:hover div[data-fsb-golden] { filter: drop-shadow(0 0 3px #f7d774) !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-golden-voice] { filter: drop-shadow(0 0 3px #f7d774) !important; }
+    div[class*="member__"]:hover span[data-fsb-silver], a:hover span[data-fsb-silver], span[data-fsb-silver]:hover { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-silver-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-silver-header] { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-silver-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-silver-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-silver],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-silver] { filter: none !important; }
+    div[class*="members_"]:hover div[data-fsb-silver] { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-silver-voice] { filter: drop-shadow(0 0 3px #f2f2f2) !important; }
+    div[class*="member__"]:hover span[data-fsb-bronze], a:hover span[data-fsb-bronze], span[data-fsb-bronze]:hover { filter: drop-shadow(0 0 3px #d08a4a) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-bronze-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-bronze-header] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-bronze-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-bronze-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-bronze],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-bronze] { filter: none !important; }
+    div[class*="members_"]:hover div[data-fsb-bronze] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-bronze-voice] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
+`;
+
+// ── 🔮 CELESTIAL ─────────────────────────────────────────────────────────────
+
+const CELESTIAL_STARS_CHARS = ["✦", "✦", "✦", "✦"];
+const CELESTIAL_ORBIT_RADIUS = 14;
+const CELESTIAL_ORBIT_DURATION = 2.4;
+
+function injectCelestialStars(target: HTMLElement) {
+    if (target.querySelector("[data-fsb-cstar]")) return;
+    const wrap = document.createElement("span");
+    wrap.dataset.fsbCelestialWrap = "1";
+    wrap.style.cssText = "position:relative;display:inline-block;";
+    while (target.firstChild) wrap.appendChild(target.firstChild);
+    target.appendChild(wrap);
+    CELESTIAL_STARS_CHARS.forEach((char, i) => {
+        const star = document.createElement("span");
+        star.dataset.fsbCstar = String(i);
+        star.textContent = char;
+        const startDeg = (360 / CELESTIAL_STARS_CHARS.length) * i;
+        star.style.setProperty("--orbit-start", `${startDeg}deg`);
+        star.style.setProperty("--orbit-rx", `${CELESTIAL_ORBIT_RADIUS}px`);
+        star.style.setProperty("--orbit-duration", `${CELESTIAL_ORBIT_DURATION}s`);
+        wrap.appendChild(star);
+    });
+    requestAnimationFrame(() => {
+        const w = wrap.offsetWidth;
+        if (w > 0) wrap.querySelectorAll<HTMLElement>("[data-fsb-cstar]").forEach(s => s.style.setProperty("--orbit-rx", `${Math.round(w / 2) + 6}px`));
+    });
+}
+
+function injectCelestialStarsVoice(voiceContainer: HTMLElement, usernameContainer: HTMLElement) {
+    if (voiceContainer.querySelector("[data-fsb-cstar]")) return;
+    voiceContainer.style.position = "relative";
+    voiceContainer.style.overflow = "visible";
+    CELESTIAL_STARS_CHARS.forEach((char, i) => {
+        const star = document.createElement("span");
+        star.dataset.fsbCstar = String(i);
+        star.dataset.fsbCstarVoice = "1";
+        star.textContent = char;
+        const startDeg = (360 / CELESTIAL_STARS_CHARS.length) * i;
+        star.style.cssText = "position:absolute;pointer-events:none;";
+        star.style.setProperty("--orbit-start", `${startDeg}deg`);
+        star.style.setProperty("--orbit-rx", `${CELESTIAL_ORBIT_RADIUS}px`);
+        star.style.setProperty("--orbit-duration", `${CELESTIAL_ORBIT_DURATION}s`);
+        star.style.setProperty("--star-top", "50%");
+        star.style.setProperty("--star-left", "50%");
+        voiceContainer.appendChild(star);
+    });
+    requestAnimationFrame(() => {
+        const nameDiv = usernameContainer.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]") ?? usernameContainer;
+        const vcRect = voiceContainer.getBoundingClientRect();
+        const nameRect = nameDiv.getBoundingClientRect();
+        if (vcRect.width === 0 || nameRect.width === 0) return;
+        const centerLeft = (nameRect.left - vcRect.left) + nameRect.width / 2;
+        const centerTop = (nameRect.top - vcRect.top) + nameRect.height / 2;
+        const rx = Math.round(nameRect.width / 2) + 6;
+        voiceContainer.querySelectorAll<HTMLElement>("[data-fsb-cstar-voice]").forEach(star => {
+            star.style.setProperty("--star-top", `${centerTop}px`);
+            star.style.setProperty("--star-left", `${centerLeft}px`);
+            star.style.setProperty("--orbit-rx", `${rx}px`);
+        });
+    });
+}
+
+function cleanCelestialEl(el: HTMLElement) {
+    const wrap = el.querySelector<HTMLElement>("[data-fsb-celestial-wrap]");
+    if (wrap) {
+        Array.from(wrap.childNodes).forEach(n => {
+            if (n instanceof HTMLElement && n.dataset.fsbCstar !== undefined) return;
+            el.insertBefore(n, wrap);
+        });
+        wrap.remove();
+    }
+    el.querySelectorAll("[data-fsb-cstar-voice]").forEach(s => s.remove());
+    if (el.dataset.fsbCelestialVoice) { el.style.position = ""; el.style.overflow = ""; }
+    delete el.dataset.fsbCelestial;
+    delete el.dataset.fsbCustomAnim;
+}
+
+function applyCelestialEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-celestial]").forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== CELESTIAL_PRIMARY_RGB) {
+            cleanCelestialEl(el);
+            const h = el.closest<HTMLElement>("span[data-fsb-celestial-header]");
+            if (h) { delete h.dataset.fsbCelestialHeader; delete h.dataset.fsbCustomAnim; }
+        }
+    });
+    document.querySelectorAll<HTMLElement>("span[data-fsb-celestial-header]").forEach(h => {
+        if (!h.querySelector("[data-fsb-celestial]")) { delete h.dataset.fsbCelestialHeader; delete h.dataset.fsbCustomAnim; }
+    });
+    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-celestial])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CELESTIAL_PRIMARY_RGB) return;
+        el.dataset.fsbCelestial = "1"; el.dataset.fsbCustomAnim = "1";
+        const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
+        if (nameSpan && !nameSpan.querySelector("[data-fsb-celestial-wrap]")) injectCelestialStars(nameSpan);
+    });
+    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-celestial])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CELESTIAL_PRIMARY_RGB) return;
+        el.dataset.fsbCelestial = "1"; el.dataset.fsbCustomAnim = "1";
+        const h = el.closest<HTMLElement>('span[class*="headerText"]');
+        if (h) { h.dataset.fsbCelestialHeader = "1"; h.dataset.fsbCustomAnim = "1"; }
+        if (!el.querySelector("[data-fsb-celestial-wrap]")) injectCelestialStars(el);
+    });
+    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-celestial])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CELESTIAL_PRIMARY_RGB) return;
+        el.dataset.fsbCelestial = "1"; el.dataset.fsbCustomAnim = "1";
+    });
+    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-celestial])').forEach(container => {
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== CELESTIAL_PRIMARY_RGB) return;
+        container.dataset.fsbCelestial = "1"; container.dataset.fsbCustomAnim = "1";
+        const vc = container.parentElement;
+        if (vc?.dataset.fsbVoiceContainer) {
+            vc.dataset.fsbCelestialVoice = "1"; vc.dataset.fsbCustomAnim = "1";
+            if (!vc.querySelector("[data-fsb-cstar]")) injectCelestialStarsVoice(vc, container);
+        }
+    });
+}
+
+function cleanupCelestialEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-celestial]").forEach(el => {
+        cleanCelestialEl(el);
+        const h = el.closest<HTMLElement>("span[data-fsb-celestial-header]");
+        if (h) { delete h.dataset.fsbCelestialHeader; delete h.dataset.fsbCustomAnim; }
+    });
+}
+
+const CELESTIAL_CSS = `
+    span[data-fsb-celestial] span[class*="name__"], span[class*="username_"][data-fsb-celestial] {
+        background-image: linear-gradient(to right, #a855f7, #7c3aed, #a855f7) !important; background-size: 200px auto !important;
+    }
+    span[class*="username_"][data-fsb-celestial]:has([data-fsb-celestial-wrap]) { background-image: none !important; -webkit-text-fill-color: unset !important; }
+    @keyframes fsb-celestial-shimmer { 0% { background-position: -300px 50%; } 100% { background-position: 300px 50%; } }
+    div[role="article"]:hover [data-fsb-celestial-wrap], li[class*="messageListItem"]:hover [data-fsb-celestial-wrap],
+    div[class*="member__"]:hover [data-fsb-celestial-wrap], a:hover [data-fsb-celestial-wrap],
+    div[class*="voiceUser"]:hover [data-fsb-celestial-wrap] {
+        animation: fsb-celestial-shimmer 2s linear infinite !important;
+        background-image: linear-gradient(to right, #a855f7 0%, #9333ea 30%, #e9d5ff 49%, #e9d5ff 51%, #9333ea 70%, #a855f7 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="member__"]:hover span[data-fsb-celestial], a:hover span[data-fsb-celestial], span[data-fsb-celestial]:hover { filter: drop-shadow(0 0 4px #a855f7) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-celestial-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-celestial-header] { filter: drop-shadow(0 0 4px #a855f7) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-celestial-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-celestial-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-celestial],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-celestial] { filter: none !important; }
+    div[class*="members_"]:hover div[data-fsb-celestial] { filter: drop-shadow(0 0 4px #a855f7) !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-celestial-voice] { filter: drop-shadow(0 0 4px #a855f7) !important; }
+    span[class*="username_"][data-fsb-celestial], span[class*="headerText"][data-fsb-celestial-header],
+    span[class*="nameContainer"][data-fsb-celestial], span[data-fsb-celestial] span[class*="name__"] { overflow: visible !important; }
+    [data-fsb-celestial-wrap] {
+        position: relative !important; display: inline-block !important; overflow: visible !important;
+        background-image: linear-gradient(to right, #a855f7, #7c3aed, #a855f7) !important;
+        -webkit-background-clip: text !important; background-clip: text !important;
+        -webkit-text-fill-color: transparent !important; background-size: 200px auto !important;
+    }
+    [data-fsb-cstar] {
+        position: absolute !important; display: inline-block !important; pointer-events: none !important;
+        font-size: 9px !important; line-height: 1 !important; top: 50% !important; left: 50% !important;
+        margin: -5px 0 0 -5px !important; width: 10px !important; height: 10px !important;
+        text-align: center !important; opacity: 0 !important; z-index: 9999 !important;
+        -webkit-text-fill-color: currentcolor !important; background-clip: unset !important;
+        -webkit-background-clip: unset !important; background-image: none !important; color: #e9d5ff !important;
+    }
+    [data-fsb-cstar-voice] { top: var(--star-top, 50%) !important; left: var(--star-left, 50%) !important; margin: -5px 0 0 -5px !important; }
+    div[class*="member__"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
+    div[role="article"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
+    li[class*="messageListItem"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
+    span[data-fsb-celestial-wrap]:hover [data-fsb-cstar] { opacity: 1 !important; animation: fsb-celestial-orbit var(--orbit-duration, 2.4s) linear infinite !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-celestial-voice] [data-fsb-cstar-voice] { opacity: 1 !important; animation: fsb-celestial-orbit var(--orbit-duration, 2.4s) linear infinite !important; }
+    @keyframes fsb-celestial-orbit {
+        from { opacity: 1; transform: rotate(var(--orbit-start, 0deg)) translateX(var(--orbit-rx, 20px)) rotate(calc(-1 * var(--orbit-start, 0deg))); }
+        to   { opacity: 1; transform: rotate(calc(var(--orbit-start, 0deg) + 360deg)) translateX(var(--orbit-rx, 20px)) rotate(calc(-1 * (var(--orbit-start, 0deg) + 360deg))); }
+    }
+`;
+
+// ── Définition de tous les effets à enregistrer ───────────────────────────────
+
+const CUSTOM_EFFECTS: CustomEffect[] = [
+    { id: "birthday",  styleCSS: BIRTHDAY_CSS,  applyFn: applyBirthdayEffect,  cleanupFn: cleanupBirthdayEffect,  primaryRGB: BIRTHDAY_PRIMARY_RGB },
+    { id: "netricsa",  styleCSS: NETRICSA_CSS,  applyFn: applyNetricsaEffect,  cleanupFn: cleanupNetricsaEffect,  primaryRGB: NETRICSA_PRIMARY_RGB },
+    { id: "klodovik",  styleCSS: KLODOVIK_CSS,  applyFn: applyKlodovikEffect,  cleanupFn: cleanupKlodovikEffect,  primaryRGB: KLODOVIK_PRIMARY_RGB },
+    {
+        id: "medals",
+        styleCSS: MEDALS_CSS,
+        applyFn: () => { for (const def of SIMPLE_EFFECT_DEFS) makeSimpleApply(def)(); },
+        cleanupFn: () => { for (const def of SIMPLE_EFFECT_DEFS) makeSimpleCleanup(def)(); },
+    },
+    { id: "celestial", styleCSS: CELESTIAL_CSS, applyFn: applyCelestialEffect, cleanupFn: cleanupCelestialEffect, primaryRGB: CELESTIAL_PRIMARY_RGB },
+];
+
+// ── Plugin ────────────────────────────────────────────────────────────────────
+
 export default definePlugin({
     name: "The Not So Serious Cord",
     description: "Apply custom colors to specific bots' messages and names with configurable intensity",
@@ -544,9 +1294,11 @@ export default definePlugin({
         applyHardcodedBanner();
         patchGuildStoreForBanner();
         registerHardcodedRoleColors(HARDCODED_ROLE_COLORS);
-        // Le rgbToGradient est reconstruit dans fakeServerBoost via rebuildRgbIndex() appelé par registerHardcodedRoleColors
-        // On déclenche un premier passage DOM après que React ait eu le temps de rendre les noms
-        setTimeout(() => applyGradientToNames(), 200);
+
+        // Enregistrer tous les effets custom dans fakeServerBoost
+        for (const effect of CUSTOM_EFFECTS) {
+            registerCustomEffect(effect);
+        }
 
         setTimeout(() => applyBotRoleColor(), 100);
 
@@ -586,52 +1338,87 @@ export default definePlugin({
             try { fn(); } finally { isApplying = false; }
         }
 
+        // Throttle : ne déclencher applyBotRoleColor qu'une fois par frame,
+        // et seulement si une mutation pertinente a été détectée.
         let rafPending = false;
+        let pendingReset = new Set<HTMLElement>();
+
+        function scheduleApplyBot() {
+            if (rafPending) return;
+            rafPending = true;
+            requestAnimationFrame(() => {
+                rafPending = false;
+                if (pendingReset.size > 0) {
+                    const toReset = pendingReset;
+                    pendingReset = new Set();
+                    safeApply(() => { toReset.forEach(article => resetMessageElement(article)); });
+                }
+                safeApply(() => applyBotRoleColor());
+            });
+        }
+
         const observer = new MutationObserver((mutations: MutationRecord[]) => {
             if (isApplying) return;
-            let hasNewNodes = false;
-            const articlesToReset = new Set<HTMLElement>();
+
+            let hasRelevantNew = false;
 
             for (const mutation of mutations) {
-                if (mutation.type === "attributes") continue;
                 if (mutation.type !== "childList") continue;
-                if (mutation.addedNodes.length > 0) hasNewNodes = true;
-                if (mutation.type === "childList") {
-                    const allNodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
-                    if (allNodes.length > 0 && allNodes.every(n => n.nodeType !== Node.ELEMENT_NODE || (n as HTMLElement).hasAttribute("data-vc-bg-overlay"))) continue;
 
-                    const hasRemovedContent = Array.from(mutation.removedNodes).some(n => {
+                // Ignorer nos propres injections (overlays, éléments colorés, position/zIndex)
+                const allNodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
+                const isOurMutation = allNodes.every(n => {
+                    if (n.nodeType !== Node.ELEMENT_NODE) return true;
+                    const el = n as HTMLElement;
+                    return el.hasAttribute("data-vc-bg-overlay")
+                        || el.dataset.vcColored !== undefined
+                        || el.dataset.fsbRoleIcon !== undefined
+                        || el.dataset.fsbBdayStar !== undefined;
+                });
+                if (isOurMutation) continue;
+
+                // Détecter si du contenu pertinent a été retiré (embed re-rendu)
+                const hasRemovedContent = Array.from(mutation.removedNodes).some(n => {
+                    if (n.nodeType !== Node.ELEMENT_NODE) return false;
+                    const el = n as HTMLElement;
+                    return el.matches?.('article[class*="embed"]')
+                        || el.matches?.('[class*="messageContent"]')
+                        || el.matches?.('[class*="isComponentsV2"]')
+                        || el.querySelector?.('article[class*="embed"]') !== null
+                        || el.querySelector?.('[class*="isComponentsV2"]') !== null;
+                });
+
+                if (hasRemovedContent) {
+                    let node: Element | null = mutation.target as Element;
+                    while (node && node !== document.body) {
+                        if (node.getAttribute("role") === "article") { pendingReset.add(node as HTMLElement); break; }
+                        node = node.parentElement;
+                    }
+                    hasRelevantNew = true;
+                    continue;
+                }
+
+                // Vérifier si des nœuds ajoutés sont pertinents pour applyBotRoleColor
+                // (messages, embeds, composants V2 — pas les mutations de style pure)
+                const target = mutation.target as HTMLElement;
+                const isInMessageArea = !!(
+                    target.closest?.('[class*="cozy"][class*="wrapper"]')
+                    ?? target.closest?.('[role="article"]')
+                    ?? target.closest?.('[class*="chat_"]')
+                    ?? Array.from(mutation.addedNodes).some(n => {
                         if (n.nodeType !== Node.ELEMENT_NODE) return false;
                         const el = n as HTMLElement;
-                        return el.matches('article[class*="embed"]') || el.matches('[class*="messageContent"]') || el.matches('[class*="isComponentsV2"]') || el.querySelector('article[class*="embed"]') !== null || el.querySelector('[class*="isComponentsV2"]') !== null;
-                    });
-
-                    let node: Element | null = mutation.target as Element;
-                    if (hasRemovedContent) {
-                        while (node && node !== document.body) {
-                            if (node.getAttribute("role") === "article") { articlesToReset.add(node as HTMLElement); break; }
-                            node = node.parentElement;
-                        }
-                    } else {
-                        while (node && node !== document.body) {
-                            const h = node as HTMLElement;
-                            if (h.dataset.vcMsgApplied || h.dataset.vcEmbedApplied || h.dataset.vcCompV2Applied) {
-                                let articleNode: Element | null = node;
-                                while (articleNode && articleNode !== document.body) {
-                                    if (articleNode.getAttribute("role") === "article") { articlesToReset.add(articleNode as HTMLElement); break; }
-                                    articleNode = articleNode.parentElement;
-                                }
-                                break;
-                            }
-                            node = node.parentElement;
-                        }
-                    }
-                }
+                        return el.matches?.('[class*="cozy"][class*="wrapper"]')
+                            || el.matches?.('[role="article"]')
+                            || el.querySelector?.('[class*="messageContent"]') !== null
+                            || el.querySelector?.('article[class*="embed"]') !== null;
+                    })
+                );
+                if (isInMessageArea) hasRelevantNew = true;
             }
 
-            if (!hasNewNodes && articlesToReset.size === 0) return;
-            if (articlesToReset.size > 0) safeApply(() => { articlesToReset.forEach(article => resetMessageElement(article)); });
-            if (!rafPending) { rafPending = true; requestAnimationFrame(() => { rafPending = false; safeApply(() => applyBotRoleColor()); }); }
+            if (!hasRelevantNew && pendingReset.size === 0) return;
+            scheduleApplyBot();
         });
 
         observer.observe(document.body, { childList: true, subtree: true });
@@ -642,6 +1429,12 @@ export default definePlugin({
         (this as any).observer?.disconnect();
         resetAllBotColors();
         removeHardcodedBanner();
+
+        // Désenregistrer les effets custom
+        for (const effect of CUSTOM_EFFECTS) {
+            unregisterCustomEffect(effect.id);
+        }
+
         unregisterHardcodedRoleColors(Object.keys(HARDCODED_ROLE_COLORS));
     },
 });
