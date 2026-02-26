@@ -73,6 +73,12 @@ const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
         colors: { primary_color: 10508322, secondary_color: 13666890, tertiary_color: undefined },
         displayNameStyles: null,
     },
+    // Celestial
+    "1469594382834602097": {
+        colorStrings: { primaryColor: "#a855f7", secondaryColor: "#7c3aed", tertiaryColor: undefined },
+        colors: { primary_color: 11033079, secondary_color: 8137453, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
     // Klodovik (bot)
     "1473430517864075478": {
         colorStrings: { primaryColor: "#56fd0d", secondaryColor: "#f1ee27", tertiaryColor: undefined },
