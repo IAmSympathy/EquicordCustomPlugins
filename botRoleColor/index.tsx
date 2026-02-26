@@ -158,11 +158,36 @@ const settings = definePluginSettings({
 // ── Bannière hardcodée ────────────────────────────────────────────────────────
 
 function applyHardcodedBanner() {
-    // Injecter la CSS var de background Netricsa une seule fois (évite de répéter ~200Ko de base64 dans chaque overlay div)
+    // Injecter la CSS de background Netricsa une seule fois.
+    // L'image est posée directement sur chaque embed/compV2 avec background-attachment:fixed :
+    // elle apparaît uniquement dans les embeds Netricsa, est fixe (ne défile pas),
+    // et ne touche rien d'autre dans le chat.
     if (BACKGROUND_DATA_URL && !bgStyleElement) {
         bgStyleElement = document.createElement("style");
         bgStyleElement.id = "notSoSeriousCord-netricsa-bg";
-        bgStyleElement.textContent = `:root { --vc-netricsa-bg: url("${BACKGROUND_DATA_URL}"); }`;
+        bgStyleElement.textContent = `
+:root { --vc-netricsa-bg: url("${BACKGROUND_DATA_URL}"); }
+
+/* L'image est visible uniquement dans les embeds/compV2 Netricsa.
+   background-attachment:fixed la rend fixe par rapport au viewport (ne défile pas)
+   mais elle est clippée aux bords de l'embed. */
+article[class*="embed"][data-vc-embed-applied] {
+    background-image: var(--vc-netricsa-bg) !important;
+    background-size: cover !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-attachment: fixed !important;
+}
+
+[class*="isComponentsV2"][data-vc-comp-v2-applied] [class*="withAccentColor"],
+[class*="isComponentsV2"][data-vc-comp-v2-applied]:not(:has([class*="withAccentColor"])) {
+    background-image: var(--vc-netricsa-bg) !important;
+    background-size: cover !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-attachment: fixed !important;
+}
+`;
         document.head.appendChild(bgStyleElement);
     }
 
@@ -293,40 +318,12 @@ function colorizeNode(node: Node, r: number, g: number, b: number, glow: boolean
     for (const child of Array.from(el.childNodes)) colorizeNode(child, r, g, b, glow, glowIntensity);
 }
 
-function applyComponentV2Background(compV2: HTMLElement): void {
-    if (!BACKGROUND_DATA_URL) return;
-    const card = (compV2.querySelector('[class*="withAccentColor"]') as HTMLElement | null)
-        ?? (compV2.firstElementChild as HTMLElement | null)
-        ?? compV2;
-    applyEmbedBackground(card, true);
+function applyComponentV2Background(_compV2: HTMLElement): void {
+    // Le fond est géré purement en CSS via data-vc-comp-v2-applied
 }
 
-function applyEmbedBackground(embed: HTMLElement, preserveLeftBorder = false): void {
-    if (!BACKGROUND_DATA_URL || embed.dataset.vcBgApplied) return;
-    // Pas de getComputedStyle (reflow) — on force position:relative systématiquement
-    // si l'élément n'a pas déjà une position non-static via un style inline.
-    if (!embed.style.position || embed.style.position === "static") {
-        embed.style.position = "relative";
-    }
-    const leftOffset = preserveLeftBorder ? "4px" : "0";
-    const bg = document.createElement("div");
-    bg.setAttribute("data-vc-bg-overlay", "1");
-    bg.style.cssText = [
-        "position:absolute",
-        "top:0", "right:0", "bottom:0", `left:${leftOffset}`,
-        "background-image:var(--vc-netricsa-bg)",
-        "background-size:cover", "background-position:center", "background-repeat:no-repeat",
-        "pointer-events:none", "z-index:0",
-        preserveLeftBorder ? "border-radius:0 inherit inherit 0" : "border-radius:inherit",
-    ].join(";");
-    embed.insertBefore(bg, embed.firstChild);
-    for (const child of Array.from(embed.children)) {
-        if (child === bg) continue;
-        const c = child as HTMLElement;
-        if (!c.style.position || c.style.position === "static") c.style.position = "relative";
-        if (!c.style.zIndex) c.style.zIndex = "1";
-    }
-    embed.dataset.vcBgApplied = "1";
+function applyEmbedBackground(_embed: HTMLElement, _preserveLeftBorder = false): void {
+    // Le fond est géré purement en CSS via data-vc-embed-applied
 }
 
 function parseMessageId(wrapperId: string): { channelId: string; messageId: string; } | null {
@@ -515,27 +512,11 @@ function resetAllBotColors(): void {
     });
     document.querySelectorAll("[data-vc-embed-applied]").forEach((el: Element) => {
         const embed = el as HTMLElement;
-        embed.querySelector("[data-vc-bg-overlay]")?.remove();
-        embed.style.position = "";
         delete embed.dataset.vcBgApplied;
         delete embed.dataset.vcEmbedApplied;
-        for (const child of Array.from(embed.children)) {
-            const c = child as HTMLElement;
-            c.style.position = "";
-            c.style.zIndex = "";
-        }
     });
     document.querySelectorAll("[data-vc-comp-v2-applied]").forEach((el: Element) => {
         const compV2 = el as HTMLElement;
-        const cardWithBg = (compV2.querySelector("[data-vc-bg-applied]") as HTMLElement | null) ?? compV2;
-        cardWithBg.querySelector("[data-vc-bg-overlay]")?.remove();
-        cardWithBg.style.position = "";
-        delete cardWithBg.dataset.vcBgApplied;
-        for (const child of Array.from(cardWithBg.children)) {
-            const c = child as HTMLElement;
-            c.style.position = "";
-            c.style.zIndex = "";
-        }
         delete compV2.dataset.vcCompV2Applied;
     });
     document.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcMsgApplied; });
@@ -1308,25 +1289,13 @@ export default definePlugin({
             });
             article.querySelectorAll("[data-vc-embed-applied], article[data-vc-embed-applied]").forEach((el: Element) => {
                 const embed = el as HTMLElement;
-                embed.querySelector("[data-vc-bg-overlay]")?.remove();
-                embed.style.position = ""; delete embed.dataset.vcBgApplied; delete embed.dataset.vcEmbedApplied;
-                for (const child of Array.from(embed.children)) { const c = child as HTMLElement; c.style.position = ""; c.style.zIndex = ""; }
+                delete embed.dataset.vcBgApplied; delete embed.dataset.vcEmbedApplied;
             });
-            if (article.dataset.vcEmbedApplied) { article.querySelector("[data-vc-bg-overlay]")?.remove(); article.style.position = ""; delete article.dataset.vcBgApplied; delete article.dataset.vcEmbedApplied; }
+            if (article.dataset.vcEmbedApplied) { delete article.dataset.vcBgApplied; delete article.dataset.vcEmbedApplied; }
             article.querySelectorAll("[data-vc-comp-v2-applied]").forEach((el: Element) => {
-                const compV2 = el as HTMLElement;
-                const cardWithBg = (compV2.querySelector("[data-vc-bg-applied]") as HTMLElement | null) ?? compV2;
-                cardWithBg.querySelector("[data-vc-bg-overlay]")?.remove();
-                cardWithBg.style.position = ""; delete cardWithBg.dataset.vcBgApplied;
-                for (const child of Array.from(cardWithBg.children)) { const c = child as HTMLElement; c.style.position = ""; c.style.zIndex = ""; }
-                delete compV2.dataset.vcCompV2Applied;
+                delete (el as HTMLElement).dataset.vcCompV2Applied;
             });
-            if (article.dataset.vcCompV2Applied) {
-                const cardWithBg = (article.querySelector("[data-vc-bg-applied]") as HTMLElement | null) ?? article;
-                cardWithBg.querySelector("[data-vc-bg-overlay]")?.remove();
-                cardWithBg.style.position = ""; delete cardWithBg.dataset.vcBgApplied;
-                delete article.dataset.vcCompV2Applied;
-            }
+            if (article.dataset.vcCompV2Applied) delete article.dataset.vcCompV2Applied;
             article.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcMsgApplied; });
             if (article.dataset.vcMsgApplied) delete article.dataset.vcMsgApplied;
             article.querySelectorAll("[data-original-color]").forEach((el: Element) => { const h = el as HTMLElement; h.style.color = h.dataset.originalColor || ""; delete h.dataset.originalColor; });
@@ -1370,8 +1339,7 @@ export default definePlugin({
                 const isOurMutation = allNodes.every(n => {
                     if (n.nodeType !== Node.ELEMENT_NODE) return true;
                     const el = n as HTMLElement;
-                    return el.hasAttribute("data-vc-bg-overlay")
-                        || el.dataset.vcColored !== undefined
+                    return el.dataset.vcColored !== undefined
                         || el.dataset.fsbRoleIcon !== undefined
                         || el.dataset.fsbBdayStar !== undefined;
                 });
