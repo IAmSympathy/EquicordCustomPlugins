@@ -225,11 +225,17 @@ function ensureGradientStyle() {
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1)) !important;
         }
 
-        /* ── Glow header de message ── */
+        /* ── Glow header de message : sur headerText pour inclure l'icône de rôle,
+           mais annulé sur botTagCozy_ pour exclure le badge APP ── */
         span[class*="headerText"][data-fsb-header-vars] { transition: filter 0.15s ease; overflow: visible !important; }
         div[role="article"]:hover span[class*="headerText"][data-fsb-header-vars]:not([data-fsb-custom-anim]),
         li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars]:not([data-fsb-custom-anim]) {
             filter: drop-shadow(0 0 3px var(--custom-gradient-color-1));
+        }
+        /* Annuler le filter sur le badge APP */
+        div[role="article"]:hover span[class*="headerText"][data-fsb-header-vars] span[class*="botTag"],
+        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars] span[class*="botTag"] {
+            filter: none !important;
         }
         /* Ouvrir overflow sur les ancêtres du headerText pour ne pas clipper le glow */
         div[role="article"] h3,
@@ -334,10 +340,15 @@ function ensureGradientStyle() {
             background-size: 300px auto !important;
         }
 
-        /* Glow multicolore au hover (nameContainer via headerText) */
+        /* Glow multicolore au hover — header message via headerText (inclut l'icône de rôle) */
         div[role="article"]:hover span[class*="headerText"][data-fsb-birthday-header],
         li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-birthday-header] {
             filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
+        }
+        /* Annuler le filter sur le badge APP */
+        div[role="article"]:hover span[class*="headerText"][data-fsb-birthday-header] span[class*="botTag"],
+        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-birthday-header] span[class*="botTag"] {
+            filter: none !important;
         }
 
         /* Glow au hover (member list) — sur le nameContainer, pas sur name__ qui est clippé */
@@ -404,6 +415,102 @@ function ensureGradientStyle() {
             from { opacity: 1;   transform: scale(1.15)   rotate(-15deg); }
             to   { opacity: 1; transform: scale(0.85) rotate(15deg); }
         }
+
+        /* ══════════════════════════════════════════════
+           🧠 NETRICSA — Scanline au hover
+           Une bande lumineuse traverse le nom comme une tête de lecture
+        ══════════════════════════════════════════════ */
+
+        @keyframes fsb-netricsa-scan {
+            0%   { background-position: 0px 50%; }
+            100% { background-position: 300px 50%; }
+        }
+
+        /* Gradient scanline : fond bleu uniforme + ligne blanche nette de ~2px sur 300px de large
+           Les stops adjacents identiques créent une transition abrupte (pas de flou) */
+        /* nameContainer — scan sur name__ */
+        div[class*="member__"]:hover span[data-fsb-netricsa] span[class*="name__"],
+        a:hover span[data-fsb-netricsa] span[class*="name__"],
+        span[data-fsb-netricsa]:hover span[class*="name__"] {
+            animation: fsb-netricsa-scan 2s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #2494db 0%,
+                #247d90 49%,
+                #ffffff 49%,
+                #ffffff 51%,
+                #247d90 51%,
+                #2494db 100%
+            ) !important;
+            background-size: 300px auto !important;
+        }
+
+        /* username_ header message */
+        div[role="article"]:hover span[class*="username_"][data-fsb-netricsa],
+        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa] {
+            animation: fsb-netricsa-scan 2s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #2494db 0%,
+                #247d90 49%,
+                #ffffff 49%,
+                #ffffff 51%,
+                #247d90 51%,
+                #2494db 100%
+            ) !important;
+            background-size: 300px auto !important;
+        }
+
+        /* Glow bleu tech au hover — nameContainer */
+        div[class*="member__"]:hover span[data-fsb-netricsa],
+        a:hover span[data-fsb-netricsa],
+        span[data-fsb-netricsa]:hover {
+            filter: drop-shadow(0 0 3px #2494db) !important;
+        }
+
+        /* Glow bleu tech au hover — header message via headerText (inclut l'icône de rôle) */
+        div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header],
+        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] {
+            filter: drop-shadow(0 0 3px #2494db) !important;
+        }
+        /* Annuler le filter sur le badge APP */
+        div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"],
+        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"] {
+            filter: none !important;
+        }
+
+        /* Catégorie liste membres */
+        div[class*="members_"]:hover div[data-fsb-netricsa] span[data-fsb-gradient] {
+            animation: fsb-netricsa-scan 2s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #2494db 0%,
+                #247d90 49%,
+                #ffffff 49%,
+                #ffffff 51%,
+                #247d90 51%,
+                #2494db 100%
+            ) !important;
+            background-size: 300px auto !important;
+        }
+        div[class*="members_"]:hover div[data-fsb-netricsa] {
+            filter: drop-shadow(0 0 3px #2494db) !important;
+        }
+
+        /* Voice chat */
+        div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-mention-text],
+        div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-gradient]:not([data-fsb-mention]) {
+            animation: fsb-netricsa-scan 2s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #2494db 0%,
+                #247d90 49%,
+                #ffffff 49%,
+                #ffffff 51%,
+                #247d90 51%,
+                #2494db 100%
+            ) !important;
+            background-size: 300px auto !important;
+        }
+        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-netricsa-voice] {
+            filter: drop-shadow(0 0 3px #2494db) !important;
+        }
     `;
     document.head.appendChild(gradientStyleEl);
 }
@@ -425,6 +532,78 @@ function cleanBirthdayEl(el: HTMLElement) {
     el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
     delete el.dataset.fsbBirthday;
     delete el.dataset.fsbCustomAnim;
+}
+
+// Couleur primaire du rôle Netricsa (rgb normalisé)
+const NETRICSA_PRIMARY_RGB = "rgb(36, 148, 219)"; // #2494db
+
+/** Nettoie les marqueurs Netricsa sur un élément */
+function cleanNetricsaEl(el: HTMLElement) {
+    delete el.dataset.fsbNetricsa;
+    delete el.dataset.fsbCustomAnim;
+}
+
+/** Applique l'effet scanline Netricsa sur tous les éléments du rôle */
+function applyNetricsaEffect() {
+    // ── Nettoyage : retirer netricsa sur tout élément qui a perdu la couleur ──
+    document.querySelectorAll<HTMLElement>("[data-fsb-netricsa]").forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) {
+            cleanNetricsaEl(el);
+            const headerText = el.closest<HTMLElement>("span[data-fsb-netricsa-header]");
+            if (headerText) {
+                delete headerText.dataset.fsbNetricsaHeader;
+                delete headerText.dataset.fsbCustomAnim;
+            }
+        }
+    });
+    document.querySelectorAll<HTMLElement>("span[data-fsb-netricsa-header]").forEach(headerText => {
+        if (!headerText.querySelector("[data-fsb-netricsa]")) {
+            delete headerText.dataset.fsbNetricsaHeader;
+            delete headerText.dataset.fsbCustomAnim;
+        }
+    });
+
+    // 1. nameContainer
+    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
+        el.dataset.fsbNetricsa = "1";
+        el.dataset.fsbCustomAnim = "1";
+    });
+
+    // 2. span.username_ (header de message)
+    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
+        el.dataset.fsbNetricsa = "1";
+        el.dataset.fsbCustomAnim = "1";
+        const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
+        if (headerText) {
+            headerText.dataset.fsbNetricsaHeader = "1";
+            headerText.dataset.fsbCustomAnim = "1";
+        }
+    });
+
+    // 3. Catégorie liste des membres
+    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-netricsa])').forEach(ariaHidden => {
+        if (normalizeColor(ariaHidden.style.getPropertyValue("--custom-gradient-color-1")) !== NETRICSA_PRIMARY_RGB) return;
+        ariaHidden.dataset.fsbNetricsa = "1";
+        ariaHidden.dataset.fsbCustomAnim = "1";
+    });
+
+    // 4. Voice chat
+    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-netricsa])').forEach(container => {
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
+            ?? container.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) return;
+        container.dataset.fsbNetricsa = "1";
+        container.dataset.fsbCustomAnim = "1";
+        const voiceContainer = container.parentElement;
+        if (voiceContainer?.dataset.fsbVoiceContainer) {
+            voiceContainer.dataset.fsbNetricsaVoice = "1";
+            voiceContainer.dataset.fsbCustomAnim = "1";
+        }
+    });
 }
 
 function applyGradientToContainer(nameContainer: HTMLElement, g: GradientInfo) {
@@ -492,6 +671,7 @@ function resetCatEl(el: HTMLElement) {
         span.style.removeProperty("--custom-gradient-color-3");
         delete span.dataset.fsbGradient;
         delete span.dataset.fsbBirthday;
+        delete span.dataset.fsbNetricsa;
         delete span.dataset.fsbCustomAnim;
     });
 }
@@ -893,6 +1073,7 @@ export function applyGradientToNames() {
 
     // 7. Effets spéciaux par rôle
     applyBirthdayEffect();
+    applyNetricsaEffect();
 }
 
 /** Extrait le texte visible d'un nœud [aria-hidden] de catégorie (sans compter les icônes injectées) */
@@ -1306,13 +1487,11 @@ function startDomObserver() {
             delete el.dataset.fsbCustomAnim;
         });
 
-        // Reset nameContainer et username_ qui ont l'effet birthday uniquement
-        // Ne PAS retirer data-fsb-gradient des nameContainers sans birthday — ils garderaient leur gradient
-        document.querySelectorAll<HTMLElement>("span[data-fsb-birthday]").forEach(el => {
+        // Reset éléments avec effets spéciaux (birthday, netricsa…)
+        document.querySelectorAll<HTMLElement>("[data-fsb-birthday]").forEach(el => {
             el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
             delete el.dataset.fsbBirthday;
             delete el.dataset.fsbCustomAnim;
-            // Réinitialiser le gradient pour forcer une ré-évaluation de la couleur
             el.style.removeProperty("--custom-gradient-color-1");
             el.style.removeProperty("--custom-gradient-color-2");
             el.style.removeProperty("--custom-gradient-color-3");
@@ -1324,7 +1503,6 @@ function startDomObserver() {
                 if (usernameGradientClass) nameSpan.classList.remove(usernameGradientClass);
                 delete nameSpan.dataset.fsbGradientName;
             }
-            // Nettoyer le headerText parent si c'est un username_
             const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
             if (headerText) {
                 headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
@@ -1332,6 +1510,15 @@ function startDomObserver() {
                 delete headerText.dataset.fsbCustomAnim;
                 headerText.style.removeProperty("--custom-gradient-color-1");
                 delete headerText.dataset.fsbHeaderVars;
+            }
+        });
+        document.querySelectorAll<HTMLElement>("[data-fsb-netricsa]").forEach(el => {
+            delete el.dataset.fsbNetricsa;
+            delete el.dataset.fsbCustomAnim;
+            const headerText = el.closest<HTMLElement>("span[data-fsb-netricsa-header]");
+            if (headerText) {
+                delete headerText.dataset.fsbNetricsaHeader;
+                delete headerText.dataset.fsbCustomAnim;
             }
         });
 
