@@ -129,7 +129,6 @@ function rebuildRgbIndex() {
 
 let gradientStyleEl: HTMLStyleElement | null = null;
 let domObserver: MutationObserver | null = null;
-let rafPending = false;
 
 // Classes CSS Discord pour le gradient — trouvées dynamiquement au premier usage
 // (utilisées uniquement pour retrait propre au reset, pas pour injection)
@@ -179,25 +178,19 @@ function ensureGradientStyle() {
             background-size: 200px auto !important;
         }
 
-        /* ── Icône de rôle voice chat : aligner nom + icône horizontalement ── */
-        div[data-fsb-voice-checked] {
-            display: inline-flex !important;
-            align-items: center !important;
-            flex-wrap: nowrap !important;
-        }
+        /* ── Icône de rôle voice chat ── */
         div[data-fsb-voice-checked] > img[data-fsb-role-icon] {
-            flex-shrink: 0 !important;
+            vertical-align: middle !important;
             margin-left: 3px !important;
-            display: inline-block !important;
         }
         /* Animation + glow au hover de toute la plaque voice (voiceUser__) */
         div[data-fsb-voice-container] {
             transition: filter 0.15s ease;
         }
-        div[class*="voiceUser"]:hover div[data-fsb-voice-container] div[data-fsb-gradient] {
+        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) div[data-fsb-gradient] {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
-        div[class*="voiceUser"]:hover div[data-fsb-voice-container] {
+        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) {
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
         }
 
@@ -208,36 +201,34 @@ function ensureGradientStyle() {
         }
 
         /* nameContainer : <a> direct, plaque membre entière (member__), article message */
-        a:hover span[data-fsb-gradient] span[class*="name__"],
-        span[data-fsb-gradient]:hover span[class*="name__"],
-        div[class*="member__"]:hover span[data-fsb-gradient] span[class*="name__"],
-        li[class*="messageListItem"]:hover span[data-fsb-gradient] span[class*="name__"],
-        div[role="article"]:hover span[data-fsb-gradient] span[class*="name__"] {
+        a:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
+        span[data-fsb-gradient]:not([data-fsb-custom-anim]):hover span[class*="name__"],
+        div[class*="member__"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
+        li[class*="messageListItem"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
+        div[role="article"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"] {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
 
         /* username_ header de message : animation au hover du message */
-        div[role="article"]:hover span[class*="username_"][data-fsb-gradient],
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-gradient] {
+        div[role="article"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]),
+        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]) {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
 
         /* ── Glow hover : nameContainer ── */
-        span[data-fsb-gradient] span[class*="name__"] { transition: filter 0.15s ease; }
-        a:hover span[data-fsb-gradient] span[class*="name__"],
-        span[data-fsb-gradient]:hover span[class*="name__"],
-        div[class*="member__"]:hover span[data-fsb-gradient] span[class*="name__"],
-        li[class*="messageListItem"]:hover span[data-fsb-gradient] span[class*="name__"],
-        div[role="article"]:hover span[data-fsb-gradient] span[class*="name__"] {
+        span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"] { transition: filter 0.15s ease; }
+        a:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
+        span[data-fsb-gradient]:not([data-fsb-custom-anim]):hover span[class*="name__"],
+        div[class*="member__"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
+        li[class*="messageListItem"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
+        div[role="article"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"] {
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1)) !important;
         }
 
-        /* ── Glow header de message : appliqué sur headerText (parent non-clippé)
-           overflow visible en cascade pour que le glow ne soit pas coupé
-           Le filter sur headerText inclut automatiquement les icônes de rôle ── */
+        /* ── Glow header de message ── */
         span[class*="headerText"][data-fsb-header-vars] { transition: filter 0.15s ease; overflow: visible !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-header-vars],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars] {
+        div[role="article"]:hover span[class*="headerText"][data-fsb-header-vars]:not([data-fsb-custom-anim]),
+        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars]:not([data-fsb-custom-anim]) {
             filter: drop-shadow(0 0 3px var(--custom-gradient-color-1));
         }
         /* Ouvrir overflow sur les ancêtres du headerText pour ne pas clipper le glow */
@@ -261,27 +252,29 @@ function ensureGradientStyle() {
             background-size: 200px auto !important;
             transition: filter 0.15s ease;
         }
-        /* Hover générique — sélecteurs précis par contexte :
-           voice  : voiceUser__ englobe exactement une tuile voice (avatar + nom)
-           membres tuiles : layout__ pour les tuiles individuelles
-           membres catégories : hover sur le conteneur scroll de la liste entière (members_)
-                                → anime toutes les catégories dès que la souris entre dans la liste
-           autres : hover direct sur l'élément */
-        :is(span, strong, div)[data-fsb-gradient]:not(span[class*="username_"]):not([class*="nameContainer"]):not(:has(span[class*="name__"])):not(:has(img)):not(:has(svg)):not([data-fsb-voice-checked] *):not([data-fsb-voice-checked]):not([data-fsb-cat-checked] *):hover,
-        div[class*="member__"]:hover :is(span, strong, div)[data-fsb-gradient]:not(span[class*="username_"]):not([class*="nameContainer"]):not(:has(img)):not(:has(svg)):not([data-fsb-voice-checked] *):not([data-fsb-voice-checked]):not([data-fsb-cat-checked] *) {
+        :is(span, strong, div)[data-fsb-gradient]:not([data-fsb-custom-anim]):not(span[class*="username_"]):not([class*="nameContainer"]):not(:has(span[class*="name__"])):not(:has(img)):not(:has(svg)):not([data-fsb-voice-checked] *):not([data-fsb-voice-checked]):not([data-fsb-cat-checked] *):hover,
+        div[class*="member__"]:hover :is(span, strong, div)[data-fsb-gradient]:not([data-fsb-custom-anim]):not(span[class*="username_"]):not([class*="nameContainer"]):not(:has(img)):not(:has(svg)):not([data-fsb-voice-checked] *):not([data-fsb-voice-checked]):not([data-fsb-cat-checked] *) {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
         }
-        /* Voice : animation sur le texte, glow sur le conteneur parent (inclut l'icône) */
 
-        /* ── Catégories de la liste des membres ──
-           Animation + glow dès que la souris entre dans le conteneur de la liste (members_)
-           filter sur div[aria-hidden] = parent commun du span texte ET de l'img icône
-           → le glow englobe icône + texte ── */
-        div[class*="members_"]:hover div[data-fsb-cat-checked] span[data-fsb-gradient] {
+        /* ── Catégories de la liste des membres ── */
+        div[class*="members_"]:hover div[data-fsb-cat-checked]:not([data-fsb-custom-anim]) span[data-fsb-gradient] {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
-        div[class*="members_"]:hover div[data-fsb-cat-checked] {
+        div[class*="members_"]:hover div[data-fsb-cat-checked]:not([data-fsb-custom-anim]) {
+            filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
+        }
+
+        /* ── Voice générique (non-custom) ── */
+        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) div[data-fsb-gradient]:not([data-fsb-mention]) {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        }
+        /* Voice avec icône de rôle (data-fsb-mention) : animer le span texte uniquement */
+        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) div[data-fsb-mention] span[data-fsb-mention-text] {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        }
+        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) {
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
         }
 
@@ -308,6 +301,109 @@ function ensureGradientStyle() {
         span[data-fsb-mention]:hover {
             filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
         }
+
+        /* ══════════════════════════════════════════════
+           🎂 HAPPY BIRTHDAY
+           Étoiles ✨ permanentes + scroll festif + glow multicolore au hover
+        ══════════════════════════════════════════════ */
+
+        /* Scroll festif au hover (nameContainer) */
+        div[class*="member__"]:hover span[data-fsb-birthday] span[class*="name__"],
+        li[class*="messageListItem"]:hover span[data-fsb-birthday] span[class*="name__"],
+        div[role="article"]:hover span[data-fsb-birthday] span[class*="name__"],
+        a:hover span[data-fsb-birthday] span[class*="name__"],
+        span[data-fsb-birthday]:hover span[class*="name__"] {
+            animation: fsb-bday-scroll 0.65s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
+            ) !important;
+            background-size: 300px auto !important;
+        }
+        @keyframes fsb-bday-scroll {
+            from { background-position: 0 50%; }
+            to   { background-position: 300px 50%; }
+        }
+
+        /* Scroll festif au hover (username_ header message) */
+        div[role="article"]:hover span[class*="username_"][data-fsb-birthday],
+        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-birthday] {
+            animation: fsb-bday-scroll 0.65s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
+            ) !important;
+            background-size: 300px auto !important;
+        }
+
+        /* Glow multicolore au hover (nameContainer via headerText) */
+        div[role="article"]:hover span[class*="headerText"][data-fsb-birthday-header],
+        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-birthday-header] {
+            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
+        }
+
+        /* Glow au hover (member list) — sur le nameContainer, pas sur name__ qui est clippé */
+        div[class*="member__"]:hover span[data-fsb-birthday] {
+            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
+        }
+
+        /* ── Scroll festif + glow : catégorie de liste des membres ── */
+        div[class*="members_"]:hover div[data-fsb-birthday] span[data-fsb-gradient] {
+            animation: fsb-bday-scroll 0.65s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
+            ) !important;
+            background-size: 300px auto !important;
+        }
+        div[class*="members_"]:hover div[data-fsb-birthday] {
+            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
+        }
+
+        /* ── Voice chat birthday : overflow visible pour que les étoiles soient visibles ── */
+        div[class*="usernameContainer_"][data-fsb-birthday] {
+            overflow: visible !important;
+        }
+        /* Scroll festif sur le span[data-fsb-mention-text] dans usernameContainer_ birthday
+           — toujours cibler le span texte (qui a background-clip:text), jamais le div parent */
+        div[class*="voiceUser"]:hover div[data-fsb-birthday] span[data-fsb-mention-text] {
+            animation: fsb-bday-scroll 0.65s linear infinite !important;
+            background-image: linear-gradient(to right,
+                #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095
+            ) !important;
+            background-size: 300px auto !important;
+        }
+        /* Glow sur le voiceContainer parent */
+        div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-birthday-voice] {
+            filter: drop-shadow(0 0 6px #ff0095) drop-shadow(0 0 2px #ff66cc) !important;
+        }
+
+        /* ── Étoiles ✨ (injectées en JS via data-fsb-bday-star) ── */
+        [data-fsb-bday-star] {
+            display: inline-block !important;
+            font-style: normal !important;
+            pointer-events: none !important;
+            position: relative !important;
+            -webkit-text-fill-color: currentcolor !important;
+            color: white !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            background-clip: unset !important;
+            -webkit-background-clip: unset !important;
+            background-image: none !important;
+        }
+
+        /* Animation étoiles AU HOVER uniquement */
+        div[class*="member__"]:hover [data-fsb-bday-star],
+        div[role="article"]:hover [data-fsb-bday-star],
+        li[class*="messageListItem"]:hover [data-fsb-bday-star],
+        div[class*="voiceUser"]:hover [data-fsb-voice-container] [data-fsb-bday-star],
+        div[class*="voiceUser"]:hover [data-fsb-bday-star] {
+            animation: fsb-bday-star-pop 1.3s ease-in-out infinite alternate;
+        }
+        [data-fsb-bday-star="l"] { animation-delay: 0s; }
+        [data-fsb-bday-star="r"] { animation-delay: 0.55s; }
+        @keyframes fsb-bday-star-pop {
+            from { opacity: 1;   transform: scale(1.15)   rotate(-15deg); }
+            to   { opacity: 1; transform: scale(0.85) rotate(15deg); }
+        }
     `;
     document.head.appendChild(gradientStyleEl);
 }
@@ -321,12 +417,27 @@ function normalizeColor(color: string): string {
     return color;
 }
 
+// Couleur primaire du rôle Birthday (rgb normalisé)
+const BIRTHDAY_PRIMARY_RGB = "rgb(255, 0, 149)"; // #ff0095
+
+/** Nettoie les marqueurs birthday sur un élément qui n'a plus la couleur birthday */
+function cleanBirthdayEl(el: HTMLElement) {
+    el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+    delete el.dataset.fsbBirthday;
+    delete el.dataset.fsbCustomAnim;
+}
+
 function applyGradientToContainer(nameContainer: HTMLElement, g: GradientInfo) {
     nameContainer.style.removeProperty("color");
     nameContainer.style.setProperty("--custom-gradient-color-1", g.primary);
     nameContainer.style.setProperty("--custom-gradient-color-2", g.secondary);
     nameContainer.style.setProperty("--custom-gradient-color-3", g.tertiary);
     nameContainer.dataset.fsbGradient = "1";
+
+    // Si la nouvelle couleur n'est pas birthday, nettoyer les marqueurs/étoiles birthday
+    if (nameContainer.dataset.fsbBirthday && normalizeColor(g.primary) !== BIRTHDAY_PRIMARY_RGB) {
+        cleanBirthdayEl(nameContainer);
+    }
 
     const nameSpan = nameContainer.querySelector<HTMLElement>('span[class*="name__"]');
     if (nameSpan && !nameSpan.dataset.fsbGradientName) {
@@ -346,8 +457,17 @@ function applyGradientToUsernameSpan(el: HTMLElement, g: GradientInfo) {
     el.style.setProperty("--custom-gradient-color-3", g.tertiary);
     el.dataset.fsbGradient = "1";
 
-    // Propager les CSS vars sur le parent headerText pour que son filter:drop-shadow y ait accès
-    // et pour que overflow:visible soit effectif au hover
+    // Si la nouvelle couleur n'est pas birthday, nettoyer les marqueurs/étoiles birthday
+    if (el.dataset.fsbBirthday && normalizeColor(g.primary) !== BIRTHDAY_PRIMARY_RGB) {
+        cleanBirthdayEl(el);
+        const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
+        if (headerText) {
+            headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+            delete headerText.dataset.fsbBirthdayHeader;
+            delete headerText.dataset.fsbCustomAnim;
+        }
+    }
+
     const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
     if (headerText && !headerText.dataset.fsbHeaderVars) {
         headerText.style.setProperty("--custom-gradient-color-1", g.primary);
@@ -356,6 +476,26 @@ function applyGradientToUsernameSpan(el: HTMLElement, g: GradientInfo) {
 }
 
 /** Applique le gradient sur n'importe quel élément générique coloré (mentions, voice, reactors...) */
+/** Nettoie un élément [aria-hidden] de catégorie pour forcer une ré-évaluation complète */
+function resetCatEl(el: HTMLElement) {
+    el.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
+    el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+    el.style.removeProperty("--custom-gradient-color-1");
+    delete el.dataset.fsbCatChecked;
+    delete el.dataset.fsbBirthday;
+    delete el.dataset.fsbCustomAnim;
+    // Nettoyer aussi les spans enfants qui ont des CSS vars et data-fsb-gradient
+    // (nœuds recyclés : le span garde les couleurs de l'ancienne catégorie)
+    el.querySelectorAll<HTMLElement>("[data-fsb-gradient]").forEach(span => {
+        span.style.removeProperty("--custom-gradient-color-1");
+        span.style.removeProperty("--custom-gradient-color-2");
+        span.style.removeProperty("--custom-gradient-color-3");
+        delete span.dataset.fsbGradient;
+        delete span.dataset.fsbBirthday;
+        delete span.dataset.fsbCustomAnim;
+    });
+}
+
 function applyGradientToGenericEl(el: HTMLElement, g: GradientInfo) {
     el.style.setProperty("--custom-gradient-color-1", g.primary);
     el.style.setProperty("--custom-gradient-color-2", g.secondary);
@@ -375,40 +515,38 @@ export function applyRoleIcons() {
     document.querySelectorAll<HTMLElement>(
         '[class*="membersGroup"] [aria-hidden="true"]'
     ).forEach(ariaHidden => {
-        // Toujours recalculer le roleId courant à chaque passage
-        // (la liste est virtualisée : un même nœud DOM peut changer de catégorie)
         const currentRoleId = getCategoryRoleId(ariaHidden);
-
-        // Si le roleId est inconnu (nœud pas encore prêt), ne rien faire :
-        // le MutationObserver relancera applyRoleIcons quand le DOM sera stable
         if (currentRoleId === null) return;
 
         const storedRoleId = ariaHidden.dataset.fsbCatChecked;
         const existingIcon = ariaHidden.querySelector<HTMLImageElement>("[data-fsb-role-icon]");
         const existingIconRoleId = existingIcon?.dataset.fsbRoleIconId ?? null;
 
-        // Si le roleId a changé (recyclage de nœud) ou si l'icône présente ne correspond pas :
-        // retirer l'ancienne icône et forcer une ré-injection
         const roleChanged = storedRoleId !== undefined && storedRoleId !== currentRoleId;
         const iconMismatch = existingIcon !== null && existingIconRoleId !== currentRoleId;
 
+        // Nettoyage complet si le rôle a changé (recyclage de nœud virtualisé)
         if (roleChanged || iconMismatch) {
-            ariaHidden.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
-            ariaHidden.style.removeProperty("--custom-gradient-color-1");
-            delete ariaHidden.dataset.fsbCatChecked;
+            resetCatEl(ariaHidden);
         }
 
-        // Vérifier si une icône native Discord existe dans le membersGroup hors de notre ariaHidden
-        const parentMembersGroup = ariaHidden.closest<HTMLElement>('[class*="membersGroup"]');
-        const nativeIconInGroup = parentMembersGroup
-            ? Array.from(parentMembersGroup.querySelectorAll<HTMLElement>('img[class*="roleIcon"]:not([data-fsb-role-icon])'))
-                  .some(img => !ariaHidden.contains(img))
-            : false;
+        // Vérifier si le rôle actuel a encore une couleur dans notre registre.
+        // Si le gradient span n'a plus de CSS var → le rôle n'est plus coloré → tout nettoyer.
+        const gradSpan = ariaHidden.querySelector<HTMLElement>("[data-fsb-gradient]");
+        const currentC1 = gradSpan?.style.getPropertyValue("--custom-gradient-color-1") ?? "";
 
-        if (nativeIconInGroup) {
-            // Une icône native Discord est présente hors de notre zone : retirer notre icône si elle existe
+        if (ariaHidden.dataset.fsbBirthday && (!currentC1 || normalizeColor(currentC1) !== BIRTHDAY_PRIMARY_RGB)) {
+            // Le rôle n'est plus birthday → retirer les étoiles et les marqueurs
+            ariaHidden.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+            delete ariaHidden.dataset.fsbBirthday;
+            delete ariaHidden.dataset.fsbCustomAnim;
+        }
+
+        // Vérifier si une icône native Discord existe DANS notre ariaHidden (doublon réel)
+        const nativeIconInAriaHidden = ariaHidden.querySelectorAll('img[class*="roleIcon"]:not([data-fsb-role-icon])').length > 0;
+
+        if (nativeIconInAriaHidden) {
             ariaHidden.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
-            // Marquer quand même pour que le gradient/CSS vars soient appliqués
             ariaHidden.dataset.fsbCatChecked = currentRoleId;
         } else if (!ariaHidden.dataset.fsbCatChecked) {
             ariaHidden.dataset.fsbCatChecked = currentRoleId;
@@ -418,14 +556,10 @@ export function applyRoleIcons() {
         }
 
         // Propager --custom-gradient-color-1 depuis le span enfant vers ce div
-        const gradSpan = ariaHidden.querySelector<HTMLElement>("[data-fsb-gradient]");
-        if (gradSpan) {
-            const c1 = gradSpan.style.getPropertyValue("--custom-gradient-color-1");
-            if (c1) ariaHidden.style.setProperty("--custom-gradient-color-1", c1);
-        }
+        if (gradSpan && currentC1) ariaHidden.style.setProperty("--custom-gradient-color-1", currentC1);
     });
 
-    // 0b. Icônes de rôle dans le voice chat
+    // 0b. Icônes de rôle dans le voice chat — nouveaux containers uniquement
     document.querySelectorAll<HTMLElement>(
         'div[class*="usernameContainer_"]:not([data-fsb-voice-checked])'
     ).forEach(container => {
@@ -442,6 +576,27 @@ export function applyRoleIcons() {
                     parentEl.style.setProperty("--custom-gradient-color-1", c1);
                     parentEl.dataset.fsbVoiceContainer = "1";
                 }
+            }
+        }
+    });
+
+    // 0c. Re-vérification des containers voice déjà marqués (changement de rôle en cours de session)
+    document.querySelectorAll<HTMLElement>(
+        'div[class*="usernameContainer_"][data-fsb-voice-checked][data-fsb-birthday]'
+    ).forEach(container => {
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
+            ?? container.style.getPropertyValue("--custom-gradient-color-1");
+
+        // Si la couleur n'est plus birthday → nettoyer complètement
+        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) {
+            container.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+            delete container.dataset.fsbBirthday;
+            delete container.dataset.fsbCustomAnim;
+            const voiceContainer = container.parentElement;
+            if (voiceContainer?.dataset.fsbBirthdayVoice) {
+                delete voiceContainer.dataset.fsbBirthdayVoice;
+                delete voiceContainer.dataset.fsbCustomAnim;
             }
         }
     });
@@ -471,6 +626,161 @@ function reorderRoleIconBeforeClanTag() {
         // Insérer le roleIconSpan avant le clanTagSpan
         headerText.insertBefore(roleIconSpan, clanTagSpan);
         headerText.dataset.fsbRoleReordered = "1";
+    });
+}
+
+/** Injecte les étoiles ✨ et marque data-fsb-birthday sur les éléments du rôle Happy Birthday */
+function applyBirthdayEffect() {
+    // ── Nettoyage : retirer birthday sur tout élément qui a perdu la couleur ──
+
+    // nameContainer déjà marqués birthday
+    document.querySelectorAll<HTMLElement>("span[data-fsb-birthday]").forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) {
+            cleanBirthdayEl(el);
+            // Nettoyer aussi le headerText parent si c'est un username_
+            const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
+            if (headerText) {
+                headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+                delete headerText.dataset.fsbBirthdayHeader;
+                delete headerText.dataset.fsbCustomAnim;
+            }
+        }
+    });
+
+    // headerText avec étoiles orphelines (username_ re-rendu sans data-fsb-birthday)
+    document.querySelectorAll<HTMLElement>("span[data-fsb-birthday-header]").forEach(headerText => {
+        const username = headerText.querySelector<HTMLElement>("span[data-fsb-birthday]");
+        if (!username) {
+            headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+            delete headerText.dataset.fsbBirthdayHeader;
+            delete headerText.dataset.fsbCustomAnim;
+        }
+    });
+
+    // 1. nameContainer (liste membres, popout…)
+    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-birthday])').forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+
+        el.dataset.fsbBirthday = "1";
+        el.dataset.fsbCustomAnim = "1";
+
+        const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
+        if (nameSpan && !el.querySelector('[data-fsb-bday-star="l"]')) {
+            const starL = document.createElement("span");
+            starL.dataset.fsbBdayStar = "l";
+            starL.textContent = "✨";
+            starL.style.cssText = "font-size:11px;margin-right:3px;vertical-align:middle;";
+            el.insertBefore(starL, nameSpan);
+
+            const starR = document.createElement("span");
+            starR.dataset.fsbBdayStar = "r";
+            starR.textContent = "🎉";
+            starR.style.cssText = "font-size:11px;margin-left:3px;vertical-align:middle;";
+            el.appendChild(starR);
+        }
+    });
+
+    // 2. span.username_ (header de message)
+    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-birthday])').forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+
+        el.dataset.fsbBirthday = "1";
+        el.dataset.fsbCustomAnim = "1";
+
+        const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
+        if (headerText) {
+            headerText.dataset.fsbBirthdayHeader = "1";
+            headerText.dataset.fsbCustomAnim = "1";
+        }
+
+        if (headerText && !headerText.querySelector("[data-fsb-bday-star]")) {
+            const usernameWrapper = (el.parentElement?.parentElement === headerText
+                ? el.parentElement
+                : el.parentElement === headerText
+                    ? el
+                    : null) ?? el;
+
+            const starL = document.createElement("span");
+            starL.dataset.fsbBdayStar = "l";
+            starL.textContent = "✨";
+            starL.style.cssText = "font-size:11px;vertical-align:middle;margin-right:2px;";
+            headerText.insertBefore(starL, usernameWrapper);
+
+            const starR = document.createElement("span");
+            starR.dataset.fsbBdayStar = "r";
+            starR.textContent = "🎉";
+            starR.style.cssText = "font-size:11px;vertical-align:middle;margin-left:2px;";
+            usernameWrapper.after(starR);
+        }
+    });
+
+    // 3. Catégorie de liste des membres (div[aria-hidden][data-fsb-cat-checked])
+    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-birthday])').forEach(ariaHidden => {
+        const c1 = ariaHidden.style.getPropertyValue("--custom-gradient-color-1");
+        if (normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+        ariaHidden.dataset.fsbBirthday = "1";
+        ariaHidden.dataset.fsbCustomAnim = "1";
+    });
+
+    // 4. Voice chat
+    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]').forEach(container => {
+        const voiceContainer = container.parentElement;
+        // gradDiv peut avoir data-fsb-gradient (sans icône de rôle) ou data-fsb-mention (avec icône de rôle)
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+
+        // Nettoyage : retirer les étoiles mal placées (pas dans gradDiv)
+        Array.from(container.querySelectorAll<HTMLElement>("[data-fsb-bday-star]"))
+            .filter(s => s.parentElement !== gradDiv)
+            .forEach(s => { s.remove(); delete container.dataset.fsbBirthday; delete container.dataset.fsbCustomAnim; });
+        if (voiceContainer?.dataset.fsbVoiceContainer) {
+            Array.from(voiceContainer.querySelectorAll<HTMLElement>("[data-fsb-bday-star]"))
+                .filter(s => s.parentElement === voiceContainer)
+                .forEach(s => { s.remove(); delete container.dataset.fsbBirthday; delete container.dataset.fsbCustomAnim; });
+        }
+
+        // Incohérence : marqué birthday mais sans étoiles dans gradDiv → forcer ré-injection
+        if (container.dataset.fsbBirthday && gradDiv && !gradDiv.querySelector("[data-fsb-bday-star]")) {
+            delete container.dataset.fsbBirthday;
+            delete container.dataset.fsbCustomAnim;
+        }
+
+        if (container.dataset.fsbBirthday) return;
+
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1")
+            ?? container.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+
+        container.dataset.fsbBirthday = "1";
+        container.dataset.fsbCustomAnim = "1";
+
+        if (voiceContainer?.dataset.fsbVoiceContainer) {
+            voiceContainer.dataset.fsbBirthdayVoice = "1";
+            voiceContainer.dataset.fsbCustomAnim = "1";
+        }
+
+        // Injecter ✨ et 🎉 à l'intérieur de gradDiv, autour du span[data-fsb-mention-text] ou du texte
+        if (gradDiv && !gradDiv.querySelector("[data-fsb-bday-star]")) {
+            const textNode = gradDiv.querySelector("[data-fsb-mention-text]") ?? gradDiv.firstChild;
+
+            const starL = document.createElement("span");
+            starL.dataset.fsbBdayStar = "l";
+            starL.textContent = "✨";
+            starL.style.cssText = "font-size:10px;margin-right:2px;vertical-align:middle;";
+            if (textNode) gradDiv.insertBefore(starL, textNode);
+            else gradDiv.prepend(starL);
+
+            const starR = document.createElement("span");
+            starR.dataset.fsbBdayStar = "r";
+            starR.textContent = "🎉";
+            starR.style.cssText = "font-size:10px;margin-left:2px;vertical-align:middle;";
+            // Insérer avant l'icône de rôle si elle existe, sinon append
+            const roleIcon = gradDiv.querySelector<HTMLElement>("[data-fsb-role-icon]");
+            if (roleIcon) gradDiv.insertBefore(starR, roleIcon);
+            else gradDiv.append(starR);
+        }
     });
 }
 
@@ -533,8 +843,18 @@ export function applyGradientToNames() {
         if (container && !container.dataset.fsbGradient) applyGradientToContainer(container, g);
     });
 
-    // 5. Éléments génériques colorés par roleColorEverywhere (mentions, voice, reactors, poll, etc.)
-    document.querySelectorAll<HTMLElement>("[style*='color']:not([data-fsb-gradient])").forEach(el => {
+    // 5. Éléments génériques colorés (mentions, voice, reactors, poll…)
+    // Scope restreint aux conteneurs connus pour éviter un scan global du DOM
+    const coloredScopes = document.querySelectorAll<HTMLElement>(
+        '[class*="members_"] span:not([data-fsb-gradient]), ' +
+        '[class*="voiceUser"] span:not([data-fsb-gradient]), ' +
+        '[class*="voiceUser"] div:not([data-fsb-gradient]), ' +
+        '[class*="messageContent"] span:not([data-fsb-gradient]), ' +
+        '[class*="messageContent"] strong:not([data-fsb-gradient]), ' +
+        '[class*="reactors"] span:not([data-fsb-gradient]), ' +
+        '[class*="poll"] span:not([data-fsb-gradient])'
+    );
+    coloredScopes.forEach(el => {
         if (el.closest("[data-fsb-gradient]")) return;
         if (
             el.matches('span[class*="nameContainer"]') ||
@@ -547,13 +867,10 @@ export function applyGradientToNames() {
         const g = rgbToGradient.get(normalizeColor(raw));
         if (!g) return;
 
-        // Cas mention : contient une img (avatar) — wrapper uniquement le texte
         if (el.querySelector("img")) {
             applyGradientToMention(el, g);
             return;
         }
-
-        // Cas général : uniquement si pas d'enfants img/svg/span
         if (!el.querySelector("img, svg, span")) {
             applyGradientToGenericEl(el, g);
         }
@@ -573,6 +890,9 @@ export function applyGradientToNames() {
             parentEl.dataset.fsbVoiceContainer = "1";
         }
     });
+
+    // 7. Effets spéciaux par rôle
+    applyBirthdayEffect();
 }
 
 /** Extrait le texte visible d'un nœud [aria-hidden] de catégorie (sans compter les icônes injectées) */
@@ -713,17 +1033,17 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
     const img = document.createElement("img");
     img.src = iconUrl;
     img.dataset.fsbRoleIcon = "1";
-    img.style.cssText = "width:14px;height:14px;vertical-align:middle;border-radius:2px;flex-shrink:0;";
+    img.style.cssText = "width:14px;height:14px;vertical-align:middle;border-radius:2px;margin-left:3px;";
 
-    // Insérer après le div.usernameFont (le texte du nom)
+    // Insérer à l'intérieur de div.usernameFont (après le texte du nom)
+    // → collé au nom, pas poussé par le flex natif Discord
     const nameDiv = usernameContainer.querySelector<HTMLElement>('[class*="usernameFont"]');
     if (nameDiv) {
-        nameDiv.insertAdjacentElement("afterend", img);
-        // Propager la CSS var au conteneur usernameContainer
+        nameDiv.appendChild(img);
+        // Propager la CSS var
         const c1 = nameDiv.style.getPropertyValue("--custom-gradient-color-1");
         if (c1) {
             usernameContainer.style.setProperty("--custom-gradient-color-1", c1);
-            // Propager aussi au div.container parent pour le hover de la plaque
             const containerEl = usernameContainer.parentElement;
             if (containerEl) {
                 containerEl.style.setProperty("--custom-gradient-color-1", c1);
@@ -815,127 +1135,221 @@ function resetGradients() {
 
 function startDomObserver() {
     if (domObserver) return;
-    domObserver = new MutationObserver(mutations => {
-        let needsApply = false;
-        for (const m of mutations) {
-            if (m.type === "attributes" && m.attributeName === "style") {
-                const el = m.target as HTMLElement;
-                if (el.matches?.('span[class*="nameContainer"]')) {
-                    delete el.dataset.fsbGradient;
-                    delete el.dataset.fsbText;
-                    el.closest?.("a[data-fsb-anchor-checked]")?.removeAttribute("data-fsb-anchor-checked");
-                    const nameSpan = el.querySelector<HTMLElement>("[data-fsb-gradient-name]");
-                    if (nameSpan) nameSpan.removeAttribute("data-fsb-gradient-name");
-                    needsApply = true;
-                } else if (el.matches?.('span[class*="username_"]') && !el.dataset.fsbGradient) {
-                    const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
-                    if (headerText) {
-                        headerText.style.removeProperty("--custom-gradient-color-1");
-                        delete headerText.dataset.fsbHeaderVars;
+
+    // Ensemble de nœuds à traiter accumulés entre mutations, vidé à chaque RAF
+    const pendingRoots = new Set<HTMLElement>();
+    let rafId: number | null = null;
+
+    function scheduleApply(root: HTMLElement | null) {
+        // root = null signifie "tout le DOM" (fallback)
+        pendingRoots.add(root ?? document.body);
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(() => {
+            rafId = null;
+            const roots = Array.from(pendingRoots);
+            pendingRoots.clear();
+
+            const fullScan = roots.includes(document.body);
+            if (fullScan) {
+                // Reset toutes les catégories avant le full scan pour forcer une réévaluation
+                document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
+                applyGradientToNames();
+                return;
+            }
+
+            // Traitement ciblé : uniquement les zones mutées
+            for (const root of roots) {
+                // Catégories dans ce root
+                root.querySelectorAll<HTMLElement>('[class*="membersGroup"] [aria-hidden="true"]').forEach(el => {
+                    const stored = el.dataset.fsbCatChecked;
+                    const current = getCategoryRoleId(el);
+                    if (current === null) return;
+                    if (stored !== current) resetCatEl(el);
+
+                    // Appliquer le gradient sur le span texte enfant si pas encore fait
+                    // (même logique que la section 5 de applyGradientToNames)
+                    el.querySelectorAll<HTMLElement>("span:not([data-fsb-gradient]), strong:not([data-fsb-gradient])").forEach(span => {
+                        if (span.closest("[data-fsb-gradient]")) return;
+                        if (span.querySelector("img, svg, span")) return;
+                        const raw = span.style.color;
+                        if (!raw) return;
+                        const g = rgbToGradient.get(normalizeColor(raw));
+                        if (g) applyGradientToGenericEl(span, g);
+                    });
+
+                    // Propager --custom-gradient-color-1 depuis le span enfant vers ce div
+                    const gradSpan = el.querySelector<HTMLElement>("[data-fsb-gradient]");
+                    if (gradSpan) {
+                        const c1 = gradSpan.style.getPropertyValue("--custom-gradient-color-1");
+                        if (c1) el.style.setProperty("--custom-gradient-color-1", c1);
                     }
-                    needsApply = true;
-                } else if (el.dataset.fsbGradient && (el.matches?.("span") || el.matches?.("strong") || el.matches?.("div"))) {
-                    delete el.dataset.fsbGradient;
-                    needsApply = true;
-                } else if (!el.dataset.fsbGradient && (el.matches?.("span") || el.matches?.("strong") || el.matches?.("div"))) {
-                    needsApply = true;
-                }
-            } else if (m.type === "childList") {
-                m.removedNodes.forEach(n => {
-                    if (n instanceof HTMLElement) {
-                        // Si un wrapper mention-text est retiré, réinitialiser le marqueur du parent
-                        if (n.dataset?.fsbMentionText) {
-                            let cur: HTMLElement | null = m.target as HTMLElement;
-                            while (cur) {
-                                if (cur.dataset?.fsbMention) {
-                                    delete cur.dataset.fsbMention;
-                                    delete cur.dataset.fsbGradient;
-                                    cur.style.removeProperty("--custom-gradient-color-1");
-                                    cur.style.removeProperty("--custom-gradient-color-2");
-                                    cur.style.removeProperty("--custom-gradient-color-3");
-                                    break;
-                                }
-                                cur = cur.parentElement;
-                            }
-                        }
-                        n.querySelectorAll("[data-fsb-cat-checked]").forEach((el: Element) => {
-                            delete (el as HTMLElement).dataset.fsbCatChecked;
-                        });
-                        if (n.dataset?.fsbCatChecked) delete n.dataset.fsbCatChecked;
-                        n.querySelectorAll("[data-fsb-voice-checked]").forEach((el: Element) => {
-                            delete (el as HTMLElement).dataset.fsbVoiceChecked;
-                        });
-                        if (n.dataset?.fsbVoiceChecked) delete n.dataset.fsbVoiceChecked;
-                        n.querySelectorAll("[data-fsb-role-reordered]").forEach((el: Element) => {
-                            delete (el as HTMLElement).dataset.fsbRoleReordered;
-                        });
-                        if (n.dataset?.fsbRoleReordered) delete n.dataset.fsbRoleReordered;
+
+                    if (!el.dataset.fsbCatChecked) {
+                        el.dataset.fsbCatChecked = current;
+                        if (!el.querySelector("[data-fsb-role-icon]")) injectCategoryRoleIcon(el, current);
                     }
                 });
 
-                // Si le contenu d'un [aria-hidden] de catégorie a changé (liste virtualisée :
-                // Discord mute le contenu sans retirer le nœud), forcer la ré-injection.
-                // IMPORTANT : ignorer les mutations causées par notre propre injection d'icône.
-                const targetEl = m.target as HTMLElement;
-                const isOurIconMutation = Array.from(m.addedNodes).some(
-                    n => n instanceof HTMLElement && n.dataset?.fsbRoleIcon
-                ) || Array.from(m.removedNodes).some(
-                    n => n instanceof HTMLElement && n.dataset?.fsbRoleIcon
-                );
+                // nameContainers dans ce root
+                root.querySelectorAll<HTMLElement>('span[class*="nameContainer"]:not([data-fsb-gradient])').forEach(el => {
+                    const raw = el.style.color;
+                    if (!raw) return;
+                    const g = rgbToGradient.get(normalizeColor(raw));
+                    if (g) applyGradientToContainer(el, g);
+                });
 
-                // Détecter si une icône native Discord vient d'être ajoutée dans un membersGroup
-                // (cas threads/forums où Discord rend son propre roleIcon après notre injection)
-                if (!isOurIconMutation) {
-                    const nativeIconAdded = Array.from(m.addedNodes).some(n => {
-                        if (!(n instanceof HTMLElement)) return false;
-                        if (n.matches?.('img[class*="roleIcon"]') && !n.dataset?.fsbRoleIcon) return true;
-                        return n.querySelector?.('img[class*="roleIcon"]:not([data-fsb-role-icon])') !== null;
-                    });
-                    if (nativeIconAdded) {
-                        const membersGroup = targetEl.closest?.('[class*="membersGroup"]') as HTMLElement | null;
-                        if (membersGroup) {
-                            const ariaHiddenEl = membersGroup.querySelector<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]');
-                            if (ariaHiddenEl) {
-                                ariaHiddenEl.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
-                            }
+                // username_ headers dans ce root
+                root.querySelectorAll<HTMLElement>('span[class*="username_"]:not([data-fsb-gradient])').forEach(el => {
+                    if (el.closest("[data-fsb-gradient]")) return;
+                    const raw = el.style.color;
+                    if (!raw) return;
+                    const g = rgbToGradient.get(normalizeColor(raw));
+                    if (g) applyGradientToUsernameSpan(el, g);
+                });
+
+                // Voice containers dans ce root
+                root.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"]:not([data-fsb-voice-checked])').forEach(container => {
+                    container.dataset.fsbVoiceChecked = "1";
+                    if (!container.querySelector("[data-fsb-role-icon]")) injectVoiceRoleIcon(container);
+                });
+            }
+
+            // Birthday toujours sur tout le DOM visible (peu d'éléments)
+            applyBirthdayEffect();
+        });
+    }
+
+    domObserver = new MutationObserver(mutations => {
+        let membersZoneChanged = false;
+
+        for (const m of mutations) {
+            if (m.type !== "childList") continue;
+            if (m.addedNodes.length === 0 && m.removedNodes.length === 0) continue;
+
+            // Ignorer nos propres injections (role icons, bday stars)
+            const isOurMutation = Array.from(m.addedNodes).concat(Array.from(m.removedNodes)).some(n => {
+                if (!(n instanceof HTMLElement)) return false;
+                return n.dataset?.fsbRoleIcon !== undefined || n.dataset?.fsbBdayStar !== undefined;
+            });
+            if (isOurMutation) continue;
+
+            const target = m.target as HTMLElement;
+
+            // Nettoyage des marqueurs sur nœuds retirés
+            m.removedNodes.forEach(n => {
+                if (!(n instanceof HTMLElement)) return;
+                if (n.dataset?.fsbMentionText) {
+                    let cur: HTMLElement | null = target;
+                    while (cur) {
+                        if (cur.dataset?.fsbMention) {
+                            delete cur.dataset.fsbMention;
+                            delete cur.dataset.fsbGradient;
+                            cur.style.removeProperty("--custom-gradient-color-1");
+                            cur.style.removeProperty("--custom-gradient-color-2");
+                            cur.style.removeProperty("--custom-gradient-color-3");
+                            break;
                         }
+                        cur = cur.parentElement;
                     }
                 }
+                n.querySelectorAll("[data-fsb-cat-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbCatChecked);
+                if (n.dataset?.fsbCatChecked) delete n.dataset.fsbCatChecked;
+                n.querySelectorAll("[data-fsb-voice-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbVoiceChecked);
+                if (n.dataset?.fsbVoiceChecked) delete n.dataset.fsbVoiceChecked;
+                n.querySelectorAll("[data-fsb-role-reordered]").forEach(el => delete (el as HTMLElement).dataset.fsbRoleReordered);
+                if (n.dataset?.fsbRoleReordered) delete n.dataset.fsbRoleReordered;
+            });
 
-                if (!isOurIconMutation && targetEl instanceof HTMLElement) {
-                    const ariaParent = targetEl.closest?.('[class*="membersGroup"] [aria-hidden="true"]') as HTMLElement | null
-                        ?? (targetEl.getAttribute?.("aria-hidden") === "true" && targetEl.closest?.('[class*="membersGroup"]') ? targetEl : null);
-                    if (ariaParent?.dataset.fsbCatChecked) {
-                        // Retirer l'icône existante et le marqueur pour forcer une ré-évaluation
-                        ariaParent.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
-                        ariaParent.style.removeProperty("--custom-gradient-color-1");
-                        delete ariaParent.dataset.fsbCatChecked;
-                    }
+            // Détecter si un membersGroup apparaît ou disparaît
+            const hasMembersGroupChange = (() => {
+                for (const n of [...m.addedNodes, ...m.removedNodes]) {
+                    if (!(n instanceof HTMLElement)) continue;
+                    if (n.matches?.('[class*="membersGroup"]')) return true;
+                    if (n.querySelector?.('[class*="membersGroup"]')) return true;
                 }
+                return !!(target.closest?.('[class*="membersGroup"]') || target.closest?.('[class*="members_"]'));
+            })();
 
-                if (m.addedNodes.length > 0 || m.removedNodes.length > 0) needsApply = true;
+            if (hasMembersGroupChange) {
+                membersZoneChanged = true;
+            }
+
+            // Pour les autres mutations (messages, voice), traitement ciblé
+            if (!hasMembersGroupChange) {
+                const scopeRoot =
+                    target.closest<HTMLElement>('[class*="voiceUsers_"]') ??
+                    target.closest<HTMLElement>('[class*="messageListItem"]') ??
+                    target.closest<HTMLElement>('[class*="chat_"]') ??
+                    null;
+                scheduleApply(scopeRoot);
             }
         }
-        if (needsApply && !rafPending) {
-            rafPending = true;
-            requestAnimationFrame(() => {
-                rafPending = false;
-                applyGradientToNames();
-                // Retry après 300 ms pour les catégories dont le fiber n'était pas encore
-                // prêt au premier passage (nouveau nœud ajouté par la liste virtualisée)
-                setTimeout(() => applyRoleIcons(), 300);
-            });
+
+        // Une seule entrée pour toute la zone membres si nécessaire
+        if (membersZoneChanged) {
+            scheduleApply(null); // full scan de la zone membres
         }
     });
-    domObserver.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["style"],
-    });
+
+    domObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Flux : GUILD_MEMBER_UPDATE / VOICE_STATE_UPDATE → reset ciblé + re-scan
+    const onMemberOrVoiceUpdate = () => {
+        // Reset catégories
+        document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
+
+        // Reset voice
+        document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => {
+            el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+            delete el.dataset.fsbVoiceChecked;
+            delete el.dataset.fsbBirthday;
+            delete el.dataset.fsbCustomAnim;
+        });
+
+        // Reset nameContainer et username_ qui ont l'effet birthday uniquement
+        // Ne PAS retirer data-fsb-gradient des nameContainers sans birthday — ils garderaient leur gradient
+        document.querySelectorAll<HTMLElement>("span[data-fsb-birthday]").forEach(el => {
+            el.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+            delete el.dataset.fsbBirthday;
+            delete el.dataset.fsbCustomAnim;
+            // Réinitialiser le gradient pour forcer une ré-évaluation de la couleur
+            el.style.removeProperty("--custom-gradient-color-1");
+            el.style.removeProperty("--custom-gradient-color-2");
+            el.style.removeProperty("--custom-gradient-color-3");
+            delete el.dataset.fsbGradient;
+            delete el.dataset.fsbText;
+            const nameSpan = el.querySelector<HTMLElement>("[data-fsb-gradient-name]");
+            if (nameSpan) {
+                if (gradientClass) nameSpan.classList.remove(gradientClass);
+                if (usernameGradientClass) nameSpan.classList.remove(usernameGradientClass);
+                delete nameSpan.dataset.fsbGradientName;
+            }
+            // Nettoyer le headerText parent si c'est un username_
+            const headerText = el.closest<HTMLElement>("span[data-fsb-birthday-header]");
+            if (headerText) {
+                headerText.querySelectorAll("[data-fsb-bday-star]").forEach(s => s.remove());
+                delete headerText.dataset.fsbBirthdayHeader;
+                delete headerText.dataset.fsbCustomAnim;
+                headerText.style.removeProperty("--custom-gradient-color-1");
+                delete headerText.dataset.fsbHeaderVars;
+            }
+        });
+
+        scheduleApply(null); // full scan après reset
+    };
+
+    for (const event of ["GUILD_MEMBER_UPDATE", "VOICE_STATE_UPDATE"] as const) {
+        FluxDispatcher.subscribe(event, onMemberOrVoiceUpdate);
+    }
+    (domObserver as any)._fluxUnsub = () => {
+        for (const event of ["GUILD_MEMBER_UPDATE", "VOICE_STATE_UPDATE"] as const) {
+            FluxDispatcher.unsubscribe(event, onMemberOrVoiceUpdate);
+        }
+    };
 }
 
 function stopDomObserver() {
+    (domObserver as any)?._fluxUnsub?.();
     domObserver?.disconnect();
     domObserver = null;
 }

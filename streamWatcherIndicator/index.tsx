@@ -7,9 +7,10 @@
 import "./styles.css";
 
 import { definePluginSettings } from "@api/Settings";
-import {Devs, EquicordDevs} from "@utils/constants";
+import { EquicordDevs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
 import { findStoreLazy } from "@webpack";
+import { FluxDispatcher } from "@webpack/common";
 
 const ApplicationStreamingStore = findStoreLazy("ApplicationStreamingStore");
 
@@ -145,15 +146,15 @@ function processVoiceUserAvatars() {
     });
 }
 
+let fluxUnsubs: (() => void)[] = [];
+
 // Function to start observing
 function startObserver() {
     if (observer) return;
 
     observer = new MutationObserver(mutations => {
         let shouldProcess = false;
-
         for (const mutation of mutations) {
-            // Check if voice users section was added/modified
             if (mutation.type === "childList") {
                 for (const node of mutation.addedNodes) {
                     if (node instanceof HTMLElement) {
@@ -166,28 +167,18 @@ function startObserver() {
                 }
             }
         }
-
-        if (shouldProcess) {
-            processVoiceUserAvatars();
-        }
+        if (shouldProcess) processVoiceUserAvatars();
     });
 
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-
-    // Initial process
+    observer.observe(document.body, { childList: true, subtree: true });
     processVoiceUserAvatars();
 
-    // Listen to stream changes
-    const checkInterval = setInterval(() => {
-        processVoiceUserAvatars();
-    }, 2000);
-
-    return () => {
-        clearInterval(checkInterval);
-    };
+    // Réagir aux événements stream/voice via Flux — zéro CPU en idle
+    const onStreamEvent = () => processVoiceUserAvatars();
+    for (const event of ["STREAM_START", "STREAM_STOP", "STREAM_UPDATE", "VOICE_STATE_UPDATE"] as const) {
+        FluxDispatcher.subscribe(event, onStreamEvent);
+        fluxUnsubs.push(() => FluxDispatcher.unsubscribe(event, onStreamEvent));
+    }
 }
 
 // Function to stop observing
@@ -210,5 +201,7 @@ export default definePlugin({
 
     stop() {
         stopObserver();
+        fluxUnsubs.forEach(fn => fn());
+        fluxUnsubs = [];
     },
 });
