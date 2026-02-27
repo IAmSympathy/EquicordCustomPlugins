@@ -11,6 +11,21 @@
     pointer-events: none;
 }
 
+.vc-dynbg-fade-layer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Masquer le gradient natif Discord — remplacé par vc-dynbg-fade-layer */
+[class*="messagesWrapper_"] [class*="floatingBars_"] {
+    display: none !important;
+}
+
 [class*="messagesWrapper_"],
 [class*="managedReactiveScroller_"] {
     position: relative !important;

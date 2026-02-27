@@ -23,22 +23,16 @@ const settings = definePluginSettings({
     opacity: {
         type: OptionType.SLIDER,
         description: "Opacity of the background overlay (0 = fully transparent, 100 = fully opaque).",
-        default: 20,
+        default: 25,
         markers: [0, 25, 50, 75, 100],
         stickToMarkers: false,
-        onChange: () => { updateChatExtBg(); },
+        onChange: () => { updateChatExtBg(); updateVoiceBg(); updateForumBg(); },
     },
     bgColor: {
         type: OptionType.STRING,
         description: "Background color of the chat overlay (hex, e.g. #000000).",
         default: "#000000",
-        onChange: () => { updateChatExtBg(); },
-    },
-    panelColor: {
-        type: OptionType.STRING,
-        description: "Color of the channel list, member list and channel header panels (hex, e.g. #323339). Should match your Discord theme's background.",
-        default: "#323339",
-        onChange: () => { updateChatExtBg(); updateSidebarBg(); },
+        onChange: () => { updateChatExtBg(); updateVoiceBg(); updateForumBg(); },
     },
     backgroundSize: {
         type: OptionType.SELECT,
@@ -103,17 +97,16 @@ function removeGlobalStyle() {
 interface WallpaperProps {
     url: string;
     size: string;
+    fixed?: boolean;
 }
 
-function WallpaperInner({ url, size }: WallpaperProps) {
-    const { opacity, bgColor, panelColor } = settings.use(["opacity", "bgColor", "panelColor"]);
-    const [r, g, b] = hexToRgb(bgColor || "#323339");
-    const alpha = ((opacity ?? 35) / 100).toFixed(3);
-    const pc = panelColor || "#313338";
+function WallpaperInner({ url, size, fixed }: WallpaperProps) {
+    const { opacity, bgColor } = settings.use(["opacity", "bgColor"]);
+    const [r, g, b] = hexToRgb(bgColor || "#000000");
+    const alpha = ((opacity ?? 20) / 100).toFixed(3);
 
     return (
         <>
-            {/* Fond image */}
             <div
                 className="vc-dynbg-image-layer"
                 style={{
@@ -121,13 +114,13 @@ function WallpaperInner({ url, size }: WallpaperProps) {
                     backgroundSize: size,
                     backgroundPosition: "center center",
                     backgroundRepeat: "no-repeat",
-                    backgroundAttachment: "fixed",
+                    backgroundAttachment: fixed ? "fixed" : undefined,
                     position: "absolute",
                     inset: 0,
                     pointerEvents: "none",
+                    zIndex: 0,
                 }}
             />
-            {/* Overlay couleur semi-transparent */}
             <div
                 className="vc-dynbg-overlay-layer"
                 style={{
@@ -135,18 +128,35 @@ function WallpaperInner({ url, size }: WallpaperProps) {
                     position: "absolute",
                     inset: 0,
                     pointerEvents: "none",
+                    zIndex: 0,
                 }}
             />
-            {/* Bloc solide en bas — couvre la zone sous la barre de saisie */}
-            <div style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: "52px",
-                background: pc,
-                pointerEvents: "none",
-            }} />
+            <div
+                className="vc-dynbg-fade-layer"
+                style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: "52px",
+                    background: "var(--channeltextarea-background)",
+                    pointerEvents: "none",
+                    zIndex: 0,
+                }}
+            />
+            <div
+                className="vc-dynbg-fade-gradient"
+                style={{
+                    position: "absolute",
+                    bottom: "52px",
+                    left: 0,
+                    right: 0,
+                    height: "30px",
+                    background: "linear-gradient(to top, var(--channeltextarea-background), transparent)",
+                    pointerEvents: "none",
+                    zIndex: 1,
+                }}
+            />
         </>
     );
 }
@@ -161,16 +171,108 @@ function removeChatExtBg() {
 }
 
 function updateChatExtBg() {
-    const { backgroundSize, panelColor } = settings.store;
-
     const selectedId = SelectedChannelStore.getChannelId();
     if (!selectedId) { removeChatExtBg(); return; }
 
     const channel = ChannelStore.getChannel(selectedId);
     if (!channel) { removeChatExtBg(); return; }
 
+    // ── Cas vocal : le fond est géré par la div fixée du body (updateVoiceBg) ──
+    // On rend simplement le panneau chat transparent pour laisser voir cette image.
+    let isVoiceChat = false;
+    if (channel.type === 2 || channel.type === 13) {
+        isVoiceChat = true;
+    } else if (channel.type === 11 || channel.type === 12) {
+        const parentId = (channel as any).parent_id;
+        if (parentId) {
+            const parent = ChannelStore.getChannel(parentId);
+            if (parent && (parent.type === 2 || parent.type === 13)) {
+                isVoiceChat = true;
+            }
+        }
+    }
+
+    if (isVoiceChat) {
+        const vocalId = channel.type === 2 || channel.type === 13
+            ? channel.id
+            : (channel as any).parent_id;
+        const vocalChannel = ChannelStore.getChannel(vocalId);
+        const voiceUrl = vocalId ? DynBgStore.getUrlForChannel(vocalId, vocalChannel?.guild_id) : undefined;
+        if (!voiceUrl) { removeChatExtBg(); return; }
+
+        const { backgroundSize, opacity, bgColor } = settings.store;
+        const size = (backgroundSize as string) ?? "cover";
+        const [r, g, b] = hexToRgb(bgColor || "#000000");
+        const alpha = ((opacity ?? 20) / 100).toFixed(3);
+
+        chatExtStyleEl?.remove();
+        chatExtStyleEl = null;
+        chatExtStyleEl = document.createElement("style");
+        chatExtStyleEl.id = "vc-dynbg-chat-ext";
+        document.head.appendChild(chatExtStyleEl);
+
+        chatExtStyleEl.textContent = `
+            div[class*="children_"]::after { display: none !important; }
+            [class*="chat_"] [class*="messagesWrapper_"],
+            [class*="chat_"] [class*="managedReactiveScroller_"],
+            [class*="chat_"] [class*="scrollerBase_"][class*="auto_"],
+            [class*="chat_"] [class*="scrollerBase_"][class*="thin_"],
+            [class*="chat_"] [class*="scrollerBase_"][class*="none_"] {
+                background: transparent !important;
+            }
+
+            [class*="subtitleContainer_"] {
+                background: var(--background-primary) !important;
+            }
+
+            /* ── Sidebar du thread vocal : image + overlay ── */
+            [class*="membersWrap_"] {
+                position: relative !important;
+                background: transparent !important;
+            }
+            [class*="membersWrap_"]::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background-image: url(${voiceUrl});
+                background-size: ${size};
+                background-position: center center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                z-index: 0;
+                pointer-events: none;
+            }
+            [class*="membersWrap_"]::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background: rgba(${r},${g},${b},${alpha});
+                z-index: 0;
+                pointer-events: none;
+            }
+            [class*="membersWrap_"] [class*="members_"],
+            [class*="membersWrap_"] [class*="scroller_"],
+            [class*="membersWrap_"] [class*="scrollerBase_"],
+            [class*="membersWrap_"] [class*="thin_"] {
+                background: transparent !important;
+                position: relative;
+                z-index: 1;
+            }
+        `;
+        return;
+    }
+
+    // ── Cas normal (canal texte, forum, DM…) ──────────────────────────────────
     let url: string | undefined;
+    let isForumThread = false;
     if (channel.type === 11 || channel.type === 12) {
+        const parentId = (channel as any).parent_id;
+        if (parentId) {
+            const parent = ChannelStore.getChannel(parentId);
+            if (parent && (parent.type === 5 || parent.type === 15)) {
+                isForumThread = true;
+            }
+        }
         url = DynBgStore.getUrlForThread(selectedId, (channel as any).parent_id, channel.guild_id);
     } else {
         url = DynBgStore.getUrlForChannel(selectedId, channel.guild_id);
@@ -178,29 +280,72 @@ function updateChatExtBg() {
 
     if (!url) { removeChatExtBg(); return; }
 
+    const { backgroundSize, opacity, bgColor } = settings.store;
+    const size = (backgroundSize as string) ?? "cover";
+    const [r, g, b] = hexToRgb(bgColor || "#000000");
+    const alpha = ((opacity ?? 20) / 100).toFixed(3);
+
     chatExtStyleEl?.remove();
     chatExtStyleEl = null;
-
-    const chatBg = panelColor || "#313338";
 
     chatExtStyleEl = document.createElement("style");
     chatExtStyleEl.id = "vc-dynbg-chat-ext";
     document.head.appendChild(chatExtStyleEl);
 
-    const size = (backgroundSize as string) ?? "cover";
-
-    chatExtStyleEl.textContent = `
-        /* ── Supprimer gradient gris au-dessus de la barre de saisie ── */
-        [class*="floatingBars_"] {
-            display: none !important;
+    const membersSidebarCss = isForumThread ? `
+        /* ── Sidebar du thread de forum : image + overlay ── */
+        [class*="membersWrap_"] {
+            position: relative !important;
+            background: transparent !important;
         }
+        [class*="membersWrap_"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url(${url});
+            background-size: ${size};
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            z-index: 0;
+            pointer-events: none;
+        }
+        [class*="membersWrap_"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(${r},${g},${b},${alpha});
+            z-index: 0;
+            pointer-events: none;
+        }
+        [class*="membersWrap_"] [class*="members_"],
+        [class*="membersWrap_"] [class*="scroller_"],
+        [class*="membersWrap_"] [class*="scrollerBase_"],
+        [class*="membersWrap_"] [class*="thin_"] {
+            background: transparent !important;
+            position: relative;
+            z-index: 1;
+        }
+    ` : `
+        /* ── Liste des membres — fond natif Discord (bloque l'image fixed) ── */
+        [class*="membersWrap_"] {
+            background: var(--background-secondary) !important;
+        }
+        [class*="membersWrap_"] [class*="members_"],
+        [class*="membersWrap_"] [class*="scroller_"],
+        [class*="membersWrap_"] [class*="scrollerBase_"],
+        [class*="membersWrap_"] [class*="thin_"] {
+            background: transparent !important;
+        }
+    `;
 
+        chatExtStyleEl.textContent = `
         /* ── Masquer le ::after natif Discord sur le conteneur children_ ── */
         div[class*="children_"]::after {
             display: none !important;
         }
 
-        /* ── Zone de messages : transparente pour les divs injectés ── */
+        /* ── Zone de messages : transparente pour laisser voir l'image injectée ── */
         [class*="chat_"] [class*="messagesWrapper_"],
         [class*="chat_"] [class*="managedReactiveScroller_"],
         [class*="chat_"] [class*="scrollerBase_"][class*="auto_"],
@@ -209,83 +354,12 @@ function updateChatExtBg() {
             background: transparent !important;
         }
 
-
-        /* ── Header du salon — fond simple + fondu vers le bas dans la zone de chat ── */
+        /* ── Header du salon — fond natif Discord (bloque l'image fixed) ── */
         [class*="subtitleContainer_"] {
-            background: transparent !important;
-            position: relative !important;
-            isolation: isolate !important;
-        }
-        [class*="subtitleContainer_"] > section[class*="title_"] {
-            background: transparent !important;
-            position: relative !important;
-            isolation: isolate !important;
-            z-index: 1 !important;
-        }
-        [class*="subtitleContainer_"]::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background-image: url("${url}");
-            background-size: ${size};
-            background-position: center center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-            z-index: 0;
-            pointer-events: none;
-        }
-        [class*="subtitleContainer_"]::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: ${chatBg};
-            z-index: 0;
-            pointer-events: none;
-        }
-        [class*="subtitleContainer_"] > * {
-            position: relative;
-            z-index: 1;
+            background: var(--background-primary) !important;
         }
 
-        /* ── Liste des membres — fond simple, sans fondu interne ── */
-        [class*="membersWrap_"] {
-            position: relative !important;
-            isolation: isolate !important;
-            background: transparent !important;
-        }
-        [class*="membersWrap_"]::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background-image: url("${url}");
-            background-size: ${size};
-            background-position: center center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-            z-index: -1;
-            pointer-events: none;
-        }
-        [class*="membersWrap_"]::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: ${chatBg};
-            z-index: -1;
-            pointer-events: none;
-        }
-        [class*="membersWrap_"] [class*="members_"],
-        [class*="membersWrap_"] [class*="scroller_"],
-        [class*="membersWrap_"] [class*="scrollerBase_"],
-        [class*="membersWrap_"] [class*="thin_"] {
-            background: transparent !important;
-        }
-
-        /* ── Nameplates membres : fond transparent ── */
-        [class*="membersWrap_"] [class*="member_"],
-        [class*="membersWrap_"] [class*="container_"][class*="clickable_"],
-        [class*="membersWrap_"] [class*="childContainer_"] {
-            background: transparent !important;
-        }
+        ${membersSidebarCss}
     `;
 }
 
@@ -301,12 +375,10 @@ function removeVoiceBg() {
 function updateVoiceBg() {
     const { backgroundSize, opacity } = settings.store;
 
-    // Toujours utiliser le canal actuellement affiché, peu importe où l'on est connecté
     const selectedId = SelectedChannelStore.getChannelId();
     if (!selectedId) { removeVoiceBg(); return; }
 
     const channel = ChannelStore.getChannel(selectedId);
-    // Ne s'applique qu'aux salons vocaux (type 2) et stage (type 13)
     if (!channel || (channel.type !== 2 && channel.type !== 13)) { removeVoiceBg(); return; }
 
     const url = DynBgStore.getUrlForChannel(selectedId, channel.guild_id);
@@ -319,7 +391,7 @@ function updateVoiceBg() {
     }
 
     const size = (backgroundSize as string) ?? "cover";
-    const alpha = ((opacity ?? 35) / 100).toFixed(3);
+    const alphaDark = Math.min(Math.max(((opacity ?? 20) / 100) * 2, 0.75), 0.92).toFixed(3);
 
     voiceStyleEl.textContent = `
         [class*="callContainer_"] {
@@ -360,8 +432,7 @@ function updateVoiceBg() {
             background-size: ${size};
             background-position: center center;
             background-repeat: no-repeat;
-            will-change: transform;
-            transform: translateZ(0);
+            background-attachment: fixed;
             z-index: 0;
             pointer-events: none;
         }
@@ -369,9 +440,7 @@ function updateVoiceBg() {
             content: "";
             position: absolute;
             inset: 0;
-            background: rgba(0,0,0,${alpha});
-            will-change: transform;
-            transform: translateZ(0);
+            background: rgba(0,0,0,${alphaDark});
             z-index: 0;
             pointer-events: none;
         }
@@ -379,6 +448,25 @@ function updateVoiceBg() {
         [class*="callContainer_"] > [class*="videoControls_"] {
             position: relative;
             z-index: 1;
+        }
+        /* Neutraliser les transform sur callContainer_ et ses ancêtres proches   */
+        /* pour que background-attachment:fixed fonctionne (fixed est cassé si un  */
+        /* ancêtre a transform/filter/will-change)                                  */
+        [class*="callContainer_"] {
+            transform: none !important;
+            will-change: auto !important;
+        }
+
+        /* ── Wrapper global (voichat + sidebar discussion) ── */
+        /* Rend le wrapper englobant transparent pour que l'image du callContainer_ */
+        /* soit visible dans la zone de séparation et le channelChatWrapper_         */
+        [class*="sidebarOpen_"][class*="noChat_"],
+        [class*="noChat_"][class*="video_"] {
+            background: transparent !important;
+            position: relative !important;
+        }
+        [class*="channelChatWrapper_"] {
+            background: transparent !important;
         }
     `;
 }
@@ -425,13 +513,18 @@ function updateForumBg() {
     }
 
     const size = (backgroundSize as string) ?? "cover";
-    const [r, g, b] = hexToRgb(bgColor || "#323339");
-    const alpha = ((opacity ?? 35) / 100).toFixed(3);
+    const [r, g, b] = hexToRgb(bgColor || "#000000");
+    const alpha = ((opacity ?? 20) / 100).toFixed(3);
+    const alphaDark = Math.min(((opacity ?? 20) / 100) * 1.5, 1).toFixed(3);
 
     forumStyleEl.textContent = `
         [class*="container_f369db"] {
             position: relative !important;
             overflow: hidden !important;
+        }
+        [class*="container_f369db"] {
+            transform: none !important;
+            will-change: auto !important;
         }
         [class*="container_f369db"]::before {
             content: "";
@@ -441,8 +534,7 @@ function updateForumBg() {
             background-size: ${size};
             background-position: center center;
             background-repeat: no-repeat;
-            will-change: transform;
-            transform: translateZ(0);
+            background-attachment: fixed;
             z-index: 0;
             pointer-events: none;
         }
@@ -450,9 +542,7 @@ function updateForumBg() {
             content: "";
             position: absolute;
             inset: 0;
-            background: rgba(${r},${g},${b},${alpha});
-            will-change: transform;
-            transform: translateZ(0);
+            background: rgba(${r},${g},${b},${alphaDark});
             z-index: 0;
             pointer-events: none;
         }
@@ -478,7 +568,23 @@ function updateForumBg() {
         [class*="matchingPostsRow_f369db"] {
             background: rgb(${r},${g},${b}) !important;
         }
-        [class*="tagsContainer_f369db"] {
+        [class*="tagsContainer_"] {
+            background: transparent !important;
+        }
+        [class*="tagsContainer_"] [class*="tag_"] {
+            background: rgba(${r},${g},${b},${alpha}) !important;
+        }
+        [class*="tagsContainer_"] button {
+            background: rgba(${r},${g},${b},${alpha}) !important;
+        }
+
+        /* ── Wrapper englobant (forum + sidebar thread) ── */
+        /* Rend transparent la zone de séparation entre le forum et sa sidebar */
+        [class*="sidebarOpen_"]:not([class*="callContainer_"]),
+        [class*="noChat_"]:not([class*="callContainer_"]) {
+            background: transparent !important;
+        }
+        [class*="channelChatWrapper_"] {
             background: transparent !important;
         }
     `;
@@ -504,8 +610,6 @@ function updateSidebarBg() {
     sidebarStyleEl?.remove();
     sidebarStyleEl = null;
 
-    const channelListBg = settings.store.panelColor || "#313338";
-
     sidebarStyleEl = document.createElement("style");
     sidebarStyleEl.id = "vc-dynbg-sidebar";
     document.head.appendChild(sidebarStyleEl);
@@ -514,13 +618,13 @@ function updateSidebarBg() {
     // pour que l'image soit bien derrière le contenu et ne bloque rien.
     sidebarStyleEl.textContent = `
         /* ── Barre de titre ── */
-        [class*="bar_c38106"] {
+        #app-mount [class*="bar_c38106"] {
             position: relative !important;
             background: transparent !important;
             background-color: transparent !important;
             isolation: isolate !important;
         }
-        [class*="bar_c38106"]::before {
+        #app-mount [class*="bar_c38106"]::before {
             content: "";
             position: absolute;
             inset: 0;
@@ -528,26 +632,29 @@ function updateSidebarBg() {
             background-size: cover;
             background-position: left top;
             background-repeat: no-repeat;
-            background-attachment: fixed;
+            transform: translateZ(0);
+            will-change: transform;
             z-index: -1;
             pointer-events: none;
         }
-        [class*="bar_c38106"]::after {
+        #app-mount [class*="bar_c38106"]::after {
             content: "";
             position: absolute;
             inset: 0;
             background: rgba(0,0,0,${alpha});
+            transform: translateZ(0);
+            will-change: transform;
             z-index: -1;
             pointer-events: none;
         }
 
         /* ── Liste de serveurs (guilds) ── */
-        nav[class*="guilds_"] {
+        #app-mount nav[class*="guilds_"] {
             position: relative !important;
             background: transparent !important;
             background-color: transparent !important;
         }
-        nav[class*="guilds_"]::before {
+        #app-mount nav[class*="guilds_"]::before {
             content: "";
             position: absolute;
             inset: 0;
@@ -555,20 +662,23 @@ function updateSidebarBg() {
             background-size: cover;
             background-position: left top;
             background-repeat: no-repeat;
-            background-attachment: fixed;
+            transform: translateZ(0);
+            will-change: transform;
             z-index: 0;
             pointer-events: none;
         }
-        nav[class*="guilds_"]::after {
+        #app-mount nav[class*="guilds_"]::after {
             content: "";
             position: absolute;
             inset: 0;
             background: rgba(0,0,0,${alpha});
+            transform: translateZ(0);
+            will-change: transform;
             z-index: 0;
             pointer-events: none;
         }
-        nav[class*="guilds_"] [class*="scroller_"],
-        nav[class*="guilds_"] [class*="scrollerBase_"] {
+        #app-mount nav[class*="guilds_"] [class*="scroller_"],
+        #app-mount nav[class*="guilds_"] [class*="scrollerBase_"] {
             background: transparent !important;
             background-color: transparent !important;
             position: relative !important;
@@ -585,35 +695,9 @@ function updateSidebarBg() {
         [class*="container_f37cb1"] > [class*="animatedContainer"] > [class*="bannerImage"] img {
             border-radius: 0 !important;
         }
+        /* ── Liste de salons — fond natif Discord (bloque l'image de la guild bar) ── */
         nav[class*="container__2637a"] {
-            position: relative !important;
-            border-right: 1px solid var(--background-modifier-accent) !important;
-            overflow: hidden !important;
-            background: transparent !important;
-        }
-        nav[class*="container__2637a"]::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background-image: url("${bgUrl}");
-            background-size: cover;
-            background-position: left top;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-            z-index: 0;
-            pointer-events: none;
-        }
-        nav[class*="container__2637a"]::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: ${channelListBg};
-            z-index: 1;
-            pointer-events: none;
-        }
-        nav[class*="container__2637a"] > * {
-            position: relative !important;
-            z-index: 2 !important;
+            background: var(--background-secondary) !important;
         }
 
 
@@ -751,11 +835,11 @@ patches: [
     replacement: [
         {
             match: /return.{1,150},(?=keyboardModeEnabled)/,
-            replace: "const vcDynBgUrl=$self.WallpaperState(arguments[0].channel);$&vcDynBgUrl,",
+            replace: "const vcDynBgState=$self.WallpaperState(arguments[0].channel);$&vcDynBgState,",
         },
         {
             match: /}\)]}\)](?=.{1,30}messages-)/,
-            replace: "$&.toSpliced(0,0,$self.Wallpaper({url:this.props.vcDynBgUrl}))",
+            replace: "$&.toSpliced(0,0,$self.Wallpaper(this.props.vcDynBgState??{}))",
         },
     ],
 },
@@ -770,7 +854,7 @@ contextMenus: {
 },
 
 flux: {
-    VOICE_CHANNEL_SELECT: updateVoiceBg,
+    VOICE_CHANNEL_SELECT: () => { updateVoiceBg(); updateChatExtBg(); },
     CHANNEL_SELECT: () => { updateVoiceBg(); updateForumBg(); updateSidebarBg(); updateChatExtBg(); },
     GUILD_SELECT: () => { updateSidebarBg(); },
     VC_DYNBG_CHANGE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); updateSidebarBg(); },
@@ -783,39 +867,45 @@ flux: {
 
 settingsAboutComponent: SettingsPanel,
 
-    Wallpaper({ url }: { url: string | undefined; }) {
+    Wallpaper({ url, fixed }: { url: string | undefined; fixed?: boolean; }) {
         if (!url) return null;
         const { backgroundSize } = settings.store;
         return (
             <WallpaperInner
                 url={url}
                 size={(backgroundSize as string) ?? "cover"}
+                fixed={fixed}
             />
         );
     },
 
-    WallpaperState(channel: Channel): string | undefined {
+    WallpaperState(channel: Channel): { url: string | undefined; fixed: boolean; } {
         return useStateFromStores([DynBgStore, SelectedChannelStore], () => {
-            // Threads (type 11 = PUBLIC_THREAD, type 12 = PRIVATE_THREAD, type 15 = GUILD_MEDIA thread)
-            // Héritent du fond du salon forum parent
+            const parentId = (channel as any).parent_id;
+
+            // Threads (type 11 = PUBLIC_THREAD, type 12 = PRIVATE_THREAD)
             if (channel.type === 11 || channel.type === 12) {
-                return DynBgStore.getUrlForThread(channel.id, (channel as any).parent_id, channel.guild_id);
-            }
-
-            // Image propre au canal
-            const own = DynBgStore.getUrlForChannel(channel.id, channel.guild_id);
-            if (own) return own;
-
-            // Fallback uniquement si ce canal EST un salon vocal (onglet discussion intégré)
-            // Type 2 = vocal, type 13 = stage
-            if (channel.type === 2 || channel.type === 13) {
-                const voiceId = SelectedChannelStore.getVoiceChannelId();
-                if (voiceId === channel.id) {
-                    return DynBgStore.getUrlForChannel(voiceId, channel.guild_id);
+                if (parentId) {
+                    const parent = ChannelStore.getChannel(parentId);
+                    // Thread d'un salon vocal → fixed pour continuité avec callContainer_::before
+                    if (parent && (parent.type === 2 || parent.type === 13)) {
+                        return { url: DynBgStore.getUrlForChannel(parentId, parent.guild_id), fixed: true };
+                    }
+                    // Thread d'un forum → fixed pour continuité avec container_f369db::before
+                    if (parent && (parent.type === 5 || parent.type === 15)) {
+                        return { url: DynBgStore.getUrlForThread(channel.id, parentId, channel.guild_id), fixed: true };
+                    }
                 }
+                return { url: DynBgStore.getUrlForThread(channel.id, parentId, channel.guild_id), fixed: false };
             }
 
-            return undefined;
+            // Salons vocaux et stages : fixed pour s'aligner avec callContainer_::before
+            if (channel.type === 2 || channel.type === 13) {
+                return { url: DynBgStore.getUrlForChannel(channel.id, channel.guild_id), fixed: true };
+            }
+
+            // Canal texte normal
+            return { url: DynBgStore.getUrlForChannel(channel.id, channel.guild_id), fixed: false };
         });
     },
 

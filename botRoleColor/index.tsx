@@ -174,21 +174,20 @@ function applyHardcodedBanner() {
         bgStyleElement = document.createElement("style");
         bgStyleElement.id = "notSoSeriousCord-netricsa-bg";
         bgStyleElement.textContent = `
-:root { --vc-netricsa-bg: url("${BACKGROUND_DATA_URL}"); }
-
 article[class*="embed"][data-vc-embed-applied] {
-    background-image: var(--vc-netricsa-bg) !important;
+    background-image: url("${BACKGROUND_DATA_URL}") !important;
     background-size: cover !important;
     background-position: center center !important;
     background-repeat: no-repeat !important;
+    will-change: contents;
 }
-
 [class*="isComponentsV2"][data-vc-comp-v2-applied] [class*="withAccentColor"],
 [class*="isComponentsV2"][data-vc-comp-v2-applied]:not(:has([class*="withAccentColor"])) {
-    background-image: var(--vc-netricsa-bg) !important;
+    background-image: url("${BACKGROUND_DATA_URL}") !important;
     background-size: cover !important;
     background-position: center center !important;
     background-repeat: no-repeat !important;
+    will-change: contents;
 }
 `;
         document.head.appendChild(bgStyleElement);
@@ -263,7 +262,6 @@ const BOT_COLORS: Record<string, string> = {
     "1473424972046270608": "#56fd0d", // Klodovik
 };
 const BOTS_WITH_GLOW = new Set(["1462959115528835092"]);
-const BOTS_WITH_BG = new Set(["1462959115528835092"]);
 
 let MessageStore: any = null;
 let isApplying = false;
@@ -324,14 +322,6 @@ function colorizeNode(node: Node, r: number, g: number, b: number, glow: boolean
     for (const child of Array.from(el.childNodes)) colorizeNode(child, r, g, b, glow, glowIntensity);
 }
 
-function applyComponentV2Background(_compV2: HTMLElement): void {
-    // Le fond est géré purement en CSS via data-vc-comp-v2-applied
-}
-
-function applyEmbedBackground(_embed: HTMLElement, _preserveLeftBorder = false): void {
-    // Le fond est géré purement en CSS via data-vc-embed-applied
-}
-
 function parseMessageId(wrapperId: string): { channelId: string; messageId: string; } | null {
     const normalized = wrapperId.includes("___") ? wrapperId.split("___").pop()! : wrapperId;
     const match = normalized.match(/^chat-messages-(\d+)-(\d+)$/);
@@ -378,7 +368,6 @@ function applyBotRoleColor() {
 
         const [roleR, roleG, roleB] = rgb;
         const shouldGlow = BOTS_WITH_GLOW.has(userId);
-        const shouldBg = BOTS_WITH_BG.has(userId);
         const intensity = settings.store.colorIntensity / 100;
         const { glowIntensity } = settings.store;
         const [newR, newG, newB] = interpolateColor(220, 221, 222, roleR, roleG, roleB, intensity);
@@ -394,7 +383,6 @@ function applyBotRoleColor() {
         messageWrapper.querySelectorAll('article[class*="embed"]').forEach((embedEl: Element) => {
             const embed = embedEl as HTMLElement;
             if (embed.dataset.vcEmbedApplied) return;
-            if (shouldBg && BACKGROUND_DATA_URL) applyEmbedBackground(embed);
             for (const child of Array.from(embed.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
             embed.dataset.vcEmbedApplied = "1";
         });
@@ -402,7 +390,6 @@ function applyBotRoleColor() {
         messageWrapper.querySelectorAll('[class*="isComponentsV2"]').forEach((compV2El: Element) => {
             const compV2 = compV2El as HTMLElement;
             if (compV2.dataset.vcCompV2Applied) return;
-            if (shouldBg && BACKGROUND_DATA_URL) applyComponentV2Background(compV2);
             for (const child of Array.from(compV2.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
             compV2.dataset.vcCompV2Applied = "1";
         });
@@ -410,7 +397,6 @@ function applyBotRoleColor() {
     applyBotRoleColorToReplies();
     applyToOrphanEmbeds();
     applyToOrphanComponentsV2();
-    // Note: applyGradientToNames() est appelé par fakeServerBoost dans son propre RAF — ne pas le doubler ici
 }
 
 function applyToOrphanEmbeds() {
@@ -438,11 +424,9 @@ function applyToOrphanEmbeds() {
         if (!rgb) return;
         const [roleR, roleG, roleB] = rgb;
         const shouldGlow = BOTS_WITH_GLOW.has(userId);
-        const shouldBg = BOTS_WITH_BG.has(userId);
         const intensity = settings.store.colorIntensity / 100;
         const { glowIntensity } = settings.store;
         const [newR, newG, newB] = interpolateColor(220, 221, 222, roleR, roleG, roleB, intensity);
-        if (shouldBg && BACKGROUND_DATA_URL) applyEmbedBackground(embed);
         for (const child of Array.from(embed.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
         embed.dataset.vcEmbedApplied = "1";
     });
@@ -473,11 +457,9 @@ function applyToOrphanComponentsV2() {
         if (!rgb) return;
         const [roleR, roleG, roleB] = rgb;
         const shouldGlow = BOTS_WITH_GLOW.has(userId);
-        const shouldBg = BOTS_WITH_BG.has(userId);
         const intensity = settings.store.colorIntensity / 100;
         const { glowIntensity } = settings.store;
         const [newR, newG, newB] = interpolateColor(220, 221, 222, roleR, roleG, roleB, intensity);
-        if (shouldBg && BACKGROUND_DATA_URL) applyComponentV2Background(compV2);
         for (const child of Array.from(compV2.childNodes)) colorizeNode(child, newR, newG, newB, shouldGlow, glowIntensity);
         compV2.dataset.vcCompV2Applied = "1";
     });
@@ -522,8 +504,7 @@ function resetAllBotColors(): void {
         delete embed.dataset.vcEmbedApplied;
     });
     document.querySelectorAll("[data-vc-comp-v2-applied]").forEach((el: Element) => {
-        const compV2 = el as HTMLElement;
-        delete compV2.dataset.vcCompV2Applied;
+        delete (el as HTMLElement).dataset.vcCompV2Applied;
     });
     document.querySelectorAll("[data-vc-msg-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcMsgApplied; });
     document.querySelectorAll("[data-vc-reply-applied]").forEach((el: Element) => { delete (el as HTMLElement).dataset.vcReplyApplied; });
