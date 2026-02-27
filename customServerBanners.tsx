@@ -19,9 +19,12 @@
 import { findGroupChildrenByChildId, NavContextMenuPatchCallback } from "@api/ContextMenu";
 import { DataStore } from "@api/index";
 import { Devs } from "@utils/constants";
+import { openModal } from "@utils/modal";
 import definePlugin from "@utils/types";
 import { Guild } from "@vencord/discord-types";
 import { GuildStore, Menu } from "@webpack/common";
+
+import { SetBackgroundModal } from "./dynamicChannelBackground/modal";
 
 const CUSTOM_BANNERS_KEY = "customServerBanners";
 const BANNER_POSITIONS_KEY = "customServerBannersPositions";
@@ -121,41 +124,22 @@ function applyBannerStyles() {
     document.head.appendChild(styleElement);
 }
 
-// Open file picker and upload banner
-async function uploadCustomBanner(guildId: string, guildName: string) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-
-    input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (!file) return;
-
-        // Check file size (limit to 5MB)
-        if (file.size > 5 * 1024 * 1024) {
-            alert("Image is too large! Please use an image smaller than 5MB.");
-            return;
-        }
-
-        // Read file as base64
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const base64Data = event.target?.result as string;
-
-            // Save custom banner
-            customBanners[guildId] = base64Data;
-            await saveCustomBanners();
-            patchGuildStore();
-            applyBannerStyles();
-
-            console.log(`[CustomServerBanners] Added custom banner for "${guildName}" (${guildId})`);
-            alert(`Custom banner set for "${guildName}"!\n\nThe banner should appear immediately. If the image looks stretched or cropped incorrectly, right-click the server name and use "Adjust Banner Position" to choose Top, Center, or Bottom positioning.`);
-        };
-
-        reader.readAsDataURL(file);
-    };
-
-    input.click();
+// Open modal and set banner
+function uploadCustomBanner(guildId: string, guildName: string) {
+    const initialUrl = customBanners[guildId];
+    openModal(p => (
+        <SetBackgroundModal
+            props={p}
+            onSelect={async (url: string) => {
+                customBanners[guildId] = url;
+                await saveCustomBanners();
+                patchGuildStore();
+                applyBannerStyles();
+            }}
+            initialUrl={initialUrl}
+            title={`Custom Banner — ${guildName}`}
+        />
+    ));
 }
 
 // Remove custom banner
@@ -175,111 +159,42 @@ const guildContextMenuPatch: NavContextMenuPatchCallback = (children, { guild }:
     if (!guild) return;
 
     const hasCustomBanner = customBanners[guild.id] !== undefined;
-    const currentPosition = bannerPositions[guild.id] || "center center";
 
-    const group = findGroupChildrenByChildId("privacy", children);
-    if (!group) {
-        children.push(
-            <Menu.MenuGroup>
-                <Menu.MenuItem
-                    id="custom-banner-upload"
-                    label="Set Custom Banner"
-                    action={() => uploadCustomBanner(guild.id, guild.name)}
-                    icon={() => (
-                        <svg width="18" height="18" viewBox="0 0 24 24">
-                            <path fill="currentColor" d="M21 3H3C2 3 1 4 1 5V19C1 20.1 2 21 3 21H21C22 21 23 20 23 19V5C23 4 22 3 21 3M5 17L8.5 12.5L11 15.5L14.5 11L19 17H5Z" />
-                        </svg>
-                    )}
-                />
-                {hasCustomBanner && (
-                    <>
-                        <Menu.MenuItem
-                            id="custom-banner-position"
-                            label="Adjust Banner Position"
-                        >
-                            <Menu.MenuItem
-                                id="custom-banner-position-top"
-                                label="Top"
-                                action={() => adjustBannerPosition(guild.id, guild.name, "center top")}
-                            />
-                            <Menu.MenuItem
-                                id="custom-banner-position-center"
-                                label="Center (Default)"
-                                action={() => adjustBannerPosition(guild.id, guild.name, "center center")}
-                            />
-                            <Menu.MenuItem
-                                id="custom-banner-position-bottom"
-                                label="Bottom"
-                                action={() => adjustBannerPosition(guild.id, guild.name, "center bottom")}
-                            />
-                        </Menu.MenuItem>
-                        <Menu.MenuItem
-                            id="custom-banner-remove"
-                            label="Remove Custom Banner"
-                            action={() => removeCustomBanner(guild.id, guild.name)}
-                            color="danger"
-                            icon={() => (
-                                <svg width="18" height="18" viewBox="0 0 24 24">
-                                    <path fill="currentColor" d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
-                                </svg>
-                            )}
-                        />
-                    </>
-                )}
-            </Menu.MenuGroup>
-        );
-    } else {
-        group.push(
+    const bannerSubmenu = (
+        <Menu.MenuItem label="Custom Server Banner" key="custom-banner-menu" id="custom-banner-menu">
             <Menu.MenuItem
                 id="custom-banner-upload"
-                label="Set Custom Banner"
+                label={hasCustomBanner ? "Change banner" : "Set banner"}
                 action={() => uploadCustomBanner(guild.id, guild.name)}
-                icon={() => (
-                    <svg width="18" height="18" viewBox="0 0 24 24">
-                        <path fill="currentColor" d="M21 3H3C2 3 1 4 1 5V19C1 20.1 2 21 3 21H21C22 21 23 20 23 19V5C23 4 22 3 21 3M5 17L8.5 12.5L11 15.5L14.5 11L19 17H5Z" />
-                    </svg>
-                )}
             />
-        );
-
-        if (hasCustomBanner) {
-            group.push(
+            {hasCustomBanner && (
                 <Menu.MenuItem
                     id="custom-banner-position"
-                    label="Adjust Banner Position"
+                    label="Adjust position"
                 >
-                    <Menu.MenuItem
-                        id="custom-banner-position-top"
-                        label="Top"
-                        action={() => adjustBannerPosition(guild.id, guild.name, "center top")}
-                    />
-                    <Menu.MenuItem
-                        id="custom-banner-position-center"
-                        label="Center (Default)"
-                        action={() => adjustBannerPosition(guild.id, guild.name, "center center")}
-                    />
-                    <Menu.MenuItem
-                        id="custom-banner-position-bottom"
-                        label="Bottom"
-                        action={() => adjustBannerPosition(guild.id, guild.name, "center bottom")}
-                    />
+                    <Menu.MenuItem id="custom-banner-position-top" label="Top"
+                        action={() => adjustBannerPosition(guild.id, guild.name, "center top")} />
+                    <Menu.MenuItem id="custom-banner-position-center" label="Center (Default)"
+                        action={() => adjustBannerPosition(guild.id, guild.name, "center center")} />
+                    <Menu.MenuItem id="custom-banner-position-bottom" label="Bottom"
+                        action={() => adjustBannerPosition(guild.id, guild.name, "center bottom")} />
                 </Menu.MenuItem>
-            );
+            )}
+            {hasCustomBanner && (
+                <>
+                    <Menu.MenuSeparator />
+                    <Menu.MenuItem id="custom-banner-remove" label="Remove banner"
+                        color="danger" action={() => removeCustomBanner(guild.id, guild.name)} />
+                </>
+            )}
+        </Menu.MenuItem>
+    );
 
-            group.push(
-                <Menu.MenuItem
-                    id="custom-banner-remove"
-                    label="Remove Custom Banner"
-                    action={() => removeCustomBanner(guild.id, guild.name)}
-                    color="danger"
-                    icon={() => (
-                        <svg width="18" height="18" viewBox="0 0 24 24">
-                            <path fill="currentColor" d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
-                        </svg>
-                    )}
-                />
-            );
-        }
+    const group = findGroupChildrenByChildId("privacy", children);
+    if (group) {
+        group.push(bannerSubmenu);
+    } else {
+        children.push(<Menu.MenuGroup>{bannerSubmenu}</Menu.MenuGroup>);
     }
 };
 

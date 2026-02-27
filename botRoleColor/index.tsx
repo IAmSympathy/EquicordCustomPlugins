@@ -13,6 +13,12 @@ import backgroundImageB64 from "file://./assets/background.png?base64";
 import bannerB64 from "file://./assets/banner.png?base64";
 
 import {
+    registerHardcodedChannelBgs,
+    registerHardcodedGuildBgs,
+    unregisterHardcodedChannelBgs,
+    unregisterHardcodedGuildBgs,
+} from "../dynamicChannelBackground/store";
+import {
     CustomEffect,
     normalizeColor,
     registerCustomEffect,
@@ -158,34 +164,25 @@ const settings = definePluginSettings({
 // ── Bannière hardcodée ────────────────────────────────────────────────────────
 
 function applyHardcodedBanner() {
-    // Injecter la CSS de background Netricsa une seule fois.
-    // L'image est posée directement sur chaque embed/compV2 avec background-attachment:fixed :
-    // elle apparaît uniquement dans les embeds Netricsa, est fixe (ne défile pas),
-    // et ne touche rien d'autre dans le chat.
     if (BACKGROUND_DATA_URL && !bgStyleElement) {
         bgStyleElement = document.createElement("style");
         bgStyleElement.id = "notSoSeriousCord-netricsa-bg";
         bgStyleElement.textContent = `
 :root { --vc-netricsa-bg: url("${BACKGROUND_DATA_URL}"); }
 
-/* L'image est visible uniquement dans les embeds/compV2 Netricsa.
-   background-attachment:fixed la rend fixe par rapport au viewport (ne défile pas)
-   mais elle est clippée aux bords de l'embed. */
 article[class*="embed"][data-vc-embed-applied] {
     background-image: var(--vc-netricsa-bg) !important;
     background-size: cover !important;
-    background-position: center !important;
+    background-position: center center !important;
     background-repeat: no-repeat !important;
-    background-attachment: fixed !important;
 }
 
 [class*="isComponentsV2"][data-vc-comp-v2-applied] [class*="withAccentColor"],
 [class*="isComponentsV2"][data-vc-comp-v2-applied]:not(:has([class*="withAccentColor"])) {
     background-image: var(--vc-netricsa-bg) !important;
     background-size: cover !important;
-    background-position: center !important;
+    background-position: center center !important;
     background-repeat: no-repeat !important;
-    background-attachment: fixed !important;
 }
 `;
         document.head.appendChild(bgStyleElement);
@@ -1259,13 +1256,31 @@ const CUSTOM_EFFECTS: CustomEffect[] = [
     { id: "celestial", styleCSS: CELESTIAL_CSS, applyFn: applyCelestialEffect, cleanupFn: cleanupCelestialEffect, primaryRGB: CELESTIAL_PRIMARY_RGB },
 ];
 
+// ── Fonds de channel (DynamicChannelBackground) ───────────────────────────────
+// Définis une constante pour chaque image et réutilise-la sur plusieurs channels.
+// Format : channelId → url
+
+// const BG_GENERAL = "https://exemple.com/general.jpg";
+
+const CHANNEL_BGS: Record<string, string> = {
+    // Exemple :
+    // "123456789012345678": BG_GENERAL,  // #général
+    // "234567890123456789": BG_GENERAL,  // #bienvenue (même image)
+};
+
+// Fond par serveur (fallback pour tous les canaux du serveur)
+const GUILD_BGS: Record<string, string> = {
+    // Exemple :
+    // [HARDCODED_GUILD_ID]: "https://exemple.com/serveur.jpg",
+};
+
 // ── Plugin ────────────────────────────────────────────────────────────────────
 
 export default definePlugin({
     name: "The Not So Serious Cord",
     description: "Apply custom colors to specific bots' messages and names with configurable intensity",
     authors: [Devs.IAmSympathy],
-    dependencies: ["Fake Server Boost Level 2"],
+    dependencies: ["Fake Server Boost Level 2", "Dynamic Channel Backgrounds"],
     settings,
 
     start() {
@@ -1275,6 +1290,8 @@ export default definePlugin({
         applyHardcodedBanner();
         patchGuildStoreForBanner();
         registerHardcodedRoleColors(HARDCODED_ROLE_COLORS);
+        registerHardcodedChannelBgs(CHANNEL_BGS);
+        registerHardcodedGuildBgs(GUILD_BGS);
 
         // Enregistrer tous les effets custom dans fakeServerBoost
         for (const effect of CUSTOM_EFFECTS) {
@@ -1398,11 +1415,14 @@ export default definePlugin({
         resetAllBotColors();
         removeHardcodedBanner();
 
+
         // Désenregistrer les effets custom
         for (const effect of CUSTOM_EFFECTS) {
             unregisterCustomEffect(effect.id);
         }
 
         unregisterHardcodedRoleColors(Object.keys(HARDCODED_ROLE_COLORS));
+        unregisterHardcodedChannelBgs(CHANNEL_BGS);
+        unregisterHardcodedGuildBgs(GUILD_BGS);
     },
 });

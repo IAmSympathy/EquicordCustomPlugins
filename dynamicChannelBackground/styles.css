@@ -1,0 +1,29 @@
+/*
+ * Même technique que WallpaperFree : div absolu injecté dans la zone chat.
+ */
+
+.vc-dynbg-container {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.vc-dynbg-image {
+    position: absolute;
+    inset: 0;
+    background-position: center center;
+    background-repeat: no-repeat;
+    will-change: transform;
+    transform: translateZ(0);
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Hover sur les messages — on cible via .vc-dynbg-active posé sur le scroller.
+   Pas de :has(), pas de transition = zéro repaint supplémentaire au hover. */
+.vc-dynbg-active li[class*="messageListItem_"]:hover {
+    background: var(--background-message-hover) !important;
+    border-radius: 0 !important;
+}
