@@ -20,19 +20,33 @@ import { DynBgStore } from "./store";
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 const settings = definePluginSettings({
-    opacity: {
+    overlayOpacity: {
         type: OptionType.SLIDER,
         description: "Opacity of the background overlay (0 = fully transparent, 100 = fully opaque).",
-        default: 25,
+        default: 30,
         markers: [0, 25, 50, 75, 100],
         stickToMarkers: false,
         onChange: () => { updateChatExtBg(); updateVoiceBg(); updateForumBg(); },
     },
-    bgColor: {
+    overlayColor: {
         type: OptionType.STRING,
         description: "Background color of the chat overlay (hex, e.g. #000000).",
         default: "#000000",
         onChange: () => { updateChatExtBg(); updateVoiceBg(); updateForumBg(); },
+    },
+    sidebarOpacity: {
+        type: OptionType.SLIDER,
+        description: "Opacity of the dark overlay on the sidebar/guilds/titlebar background (0 = no overlay, 100 = fully opaque).",
+        default: 60,
+        markers: [0, 25, 50, 75, 100],
+        stickToMarkers: false,
+        onChange: () => { updateSidebarBg(); },
+    },
+    discordColor: {
+        type: OptionType.STRING,
+        description: "Color for misc elements, should match your Discord theme (hex, e.g. #323339)",
+        default: "#323339",
+        onChange: () => { updateForumBg(); },
     },
     backgroundSize: {
         type: OptionType.SELECT,
@@ -43,14 +57,6 @@ const settings = definePluginSettings({
             { label: "Contain (letterbox)", value: "contain" },
             { label: "Stretch", value: "100% 100%" },
         ],
-    },
-    sidebarOpacity: {
-        type: OptionType.SLIDER,
-        description: "Opacity of the dark overlay on the sidebar/guilds/titlebar background (0 = no overlay, 100 = fully opaque).",
-        default: 60,
-        markers: [0, 25, 50, 75, 100],
-        stickToMarkers: false,
-        onChange: () => { updateSidebarBg(); },
     },
 });
 
@@ -101,9 +107,9 @@ interface WallpaperProps {
 }
 
 function WallpaperInner({ url, size, fixed }: WallpaperProps) {
-    const { opacity, bgColor } = settings.use(["opacity", "bgColor"]);
-    const [r, g, b] = hexToRgb(bgColor || "#000000");
-    const alpha = ((opacity ?? 20) / 100).toFixed(3);
+    const { overlayOpacity, overlayColor } = settings.use(["overlayOpacity", "overlayColor"]);
+    const [r, g, b] = hexToRgb(overlayColor || "#000000");
+    const alpha = ((overlayOpacity ?? 20) / 100).toFixed(3);
 
     return (
         <>
@@ -200,10 +206,10 @@ function updateChatExtBg() {
         const voiceUrl = vocalId ? DynBgStore.getUrlForChannel(vocalId, vocalChannel?.guild_id) : undefined;
         if (!voiceUrl) { removeChatExtBg(); return; }
 
-        const { backgroundSize, opacity, bgColor } = settings.store;
+        const { backgroundSize, overlayOpacity, overlayColor } = settings.store;
         const size = (backgroundSize as string) ?? "cover";
-        const [r, g, b] = hexToRgb(bgColor || "#000000");
-        const alpha = ((opacity ?? 20) / 100).toFixed(3);
+        const [r, g, b] = hexToRgb(overlayColor || "#000000");
+        const alpha = ((overlayOpacity ?? 20) / 100).toFixed(3);
 
         chatExtStyleEl?.remove();
         chatExtStyleEl = null;
@@ -280,10 +286,10 @@ function updateChatExtBg() {
 
     if (!url) { removeChatExtBg(); return; }
 
-    const { backgroundSize, opacity, bgColor } = settings.store;
+    const { backgroundSize, overlayOpacity, overlayColor } = settings.store;
     const size = (backgroundSize as string) ?? "cover";
-    const [r, g, b] = hexToRgb(bgColor || "#000000");
-    const alpha = ((opacity ?? 20) / 100).toFixed(3);
+    const [r, g, b] = hexToRgb(overlayColor || "#000000");
+    const alpha = ((overlayOpacity ?? 20) / 100).toFixed(3);
 
     chatExtStyleEl?.remove();
     chatExtStyleEl = null;
@@ -373,7 +379,7 @@ function removeVoiceBg() {
 }
 
 function updateVoiceBg() {
-    const { backgroundSize, opacity } = settings.store;
+    const { backgroundSize, overlayOpacity } = settings.store;
 
     const selectedId = SelectedChannelStore.getChannelId();
     if (!selectedId) { removeVoiceBg(); return; }
@@ -391,7 +397,7 @@ function updateVoiceBg() {
     }
 
     const size = (backgroundSize as string) ?? "cover";
-    const alphaDark = Math.min(Math.max(((opacity ?? 20) / 100) * 2, 0.75), 0.92).toFixed(3);
+    const alphaDark = Math.min(Math.max(((overlayOpacity ?? 20) / 100) * 1.8, 0.75), 0.92).toFixed(3);
 
     voiceStyleEl.textContent = `
         [class*="callContainer_"] {
@@ -481,7 +487,7 @@ function removeForumBg() {
 }
 
 function updateForumBg() {
-    const { backgroundSize, opacity, bgColor } = settings.store;
+    const { backgroundSize, overlayOpacity, overlayColor, discordColor } = settings.store;
 
     const selectedId = SelectedChannelStore.getChannelId();
     if (!selectedId) { removeForumBg(); return; }
@@ -513,9 +519,12 @@ function updateForumBg() {
     }
 
     const size = (backgroundSize as string) ?? "cover";
-    const [r, g, b] = hexToRgb(bgColor || "#000000");
-    const alpha = ((opacity ?? 20) / 100).toFixed(3);
-    const alphaDark = Math.min(((opacity ?? 20) / 100) * 1.5, 1).toFixed(3);
+    // overlayColor : couleur de l'overlay de l'image
+    const [r, g, b] = hexToRgb(overlayColor || "#000000");
+    const alpha = ((overlayOpacity ?? 20) / 100).toFixed(3);
+    const alphaDark = Math.min(((overlayOpacity ?? 20) / 100) * 1.5, 1).toFixed(3);
+    // discordColor : couleur des plaques (cards, header, recherche, tags)
+    const [dr, dg, db] = hexToRgb((discordColor as string) || "#323339");
 
     forumStyleEl.textContent = `
         [class*="container_f369db"] {
@@ -553,8 +562,9 @@ function updateForumBg() {
         [class*="grid_f369db"], [class*="container__34c2c"] {
             background: transparent !important;
         }
+        /* ── Plaques de thread ── */
         [class*="card_f369db"] {
-            background: rgb(${r},${g},${b}) !important;
+            background: rgb(${dr},${dg},${db}) !important;
         }
         [class*="columnsSpan_f369db"] {
             margin-bottom: 16px !important;
@@ -564,18 +574,19 @@ function updateForumBg() {
             padding: 0 26px !important;
             background: transparent !important;
         }
+        /* ── Header & barre de recherche ── */
         [class*="mainCard_f369db"][class*="header_f369db"],
         [class*="matchingPostsRow_f369db"] {
-            background: rgb(${r},${g},${b}) !important;
+            background: rgb(${dr},${dg},${db}) !important;
         }
         [class*="tagsContainer_"] {
             background: transparent !important;
         }
         [class*="tagsContainer_"] [class*="tag_"] {
-            background: rgba(${r},${g},${b},${alpha}) !important;
+            background: rgba(${dr},${dg},${db},${alpha}) !important;
         }
         [class*="tagsContainer_"] button {
-            background: rgba(${r},${g},${b},${alpha}) !important;
+            background: rgba(${dr},${dg},${db},${alpha}) !important;
         }
 
         /* ── Wrapper englobant (forum + sidebar thread) ── */

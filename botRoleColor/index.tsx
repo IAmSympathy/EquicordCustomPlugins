@@ -11,6 +11,16 @@ import { findByProps } from "@webpack";
 import { FluxDispatcher, GuildStore } from "@webpack/common";
 import backgroundImageB64 from "file://./assets/background.png?base64";
 import bannerB64 from "file://./assets/banner.png?base64";
+import bgFrostpostB64 from "file://./assets/BGs/Channels/Frostpost.jpg?base64";
+import bgKronorB64 from "file://./assets/BGs/Channels/Kronor.jpg?base64";
+import bgLandofTheDamnedB64 from "file://./assets/BGs/Channels/LandofTheDamned.jpg?base64";
+import bgMentalInstitutionB64 from "file://./assets/BGs/Channels/MentalInstitution.jpg?base64";
+import bgNetricsaB64 from "file://./assets/BGs/Channels/Netricsa.png?base64";
+import bgOilRigB64 from "file://./assets/BGs/Channels/OilRig.jpg?base64";
+import bgSaratogaB64 from "file://./assets/BGs/Channels/Saratoga.png?base64";
+import bgSiriusB64 from "file://./assets/BGs/Channels/Sirius.jpg?base64";
+import bgSSSCenterpriceB64 from "file://./assets/BGs/Channels/SSSCenterprice.jpg?base64";
+import bgTNSSLB64 from "file://./assets/BGs/Servers/TNSSL.jpg?base64";
 
 import {
     registerHardcodedChannelBgs,
@@ -30,13 +40,16 @@ import {
 
 const BACKGROUND_DATA_URL = backgroundImageB64 ? `data:image/png;base64,${backgroundImageB64}` : "";
 
-// Bannière hardcodée pour le serveur The Not So Serious Lands
+// Bannière hardcodée pour le serveur The Not So Serious Lands (image locale)
 const HARDCODED_GUILD_ID = "827364829567647774";
 const BANNER_DATA_URL = bannerB64 ? `data:image/png;base64,${bannerB64}` : "";
 let bannerStyleElement: HTMLStyleElement | null = null;
 let bgStyleElement: HTMLStyleElement | null = null;
 let originalGetGuild: any;
 let originalGetGuilds: any;
+
+// Cache des fonds de serveur enregistrés dynamiquement (guildId → url)
+let registeredGuildBanners: Record<string, string> = {};
 
 // roleId → données de couleur à injecter
 const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
@@ -161,15 +174,43 @@ const settings = definePluginSettings({
     }
 });
 
+// ── Bannières dynamiques (tous les serveurs avec bannière) ────────────────────
 
-// ── Bannière hardcodée ────────────────────────────────────────────────────────
+/** Construit l'URL CDN de la bannière d'un serveur. */
+function getGuildBannerUrl(guildId: string, banner: string): string {
+    const ext = banner.startsWith("a_") ? "gif" : "png";
+    return `https://cdn.discordapp.com/banners/${guildId}/${banner}.${ext}?size=512`;
+}
 
-function applyHardcodedBanner() {
-    // Enregistrer le fond du serveur dans DynBgStore pour que la sidebar l'affiche
-    if (BANNER_DATA_URL) {
-        registerHardcodedGuildBgs({ [HARDCODED_GUILD_ID]: BANNER_DATA_URL });
+/** Parcourt tous les serveurs connus et enregistre leur bannière dans DynBgStore. */
+function registerAllGuildBanners() {
+    if (!GuildStore?.getGuilds) return;
+    const guilds = GuildStore.getGuilds();
+    const toRegister: Record<string, string> = {};
+
+    for (const [guildId, guild] of Object.entries(guilds) as [string, any][]) {
+        // Ignorer les serveurs avec un fond de sidebar hardcodé dans GUILD_BGS
+        if (GUILD_BGS[guildId]) continue;
+        if (guild?.banner) {
+            toRegister[guildId] = getGuildBannerUrl(guildId, guild.banner);
+        }
     }
 
+    // Désenregistrer les anciennes entrées qui ne sont plus valides
+    const oldKeys = Object.keys(registeredGuildBanners);
+    const newKeys = Object.keys(toRegister);
+    const toRemove: Record<string, string> = {};
+    for (const k of oldKeys) {
+        if (!newKeys.includes(k)) toRemove[k] = registeredGuildBanners[k];
+    }
+    if (Object.keys(toRemove).length > 0) unregisterHardcodedGuildBgs(toRemove);
+
+    registeredGuildBanners = toRegister;
+    if (Object.keys(toRegister).length > 0) registerHardcodedGuildBgs(toRegister);
+}
+
+function applyHardcodedBanner() {
+    // Appliquer le fond d'embed (image locale Netricsa)
     if (BACKGROUND_DATA_URL && !bgStyleElement) {
         bgStyleElement = document.createElement("style");
         bgStyleElement.id = "notSoSeriousCord-netricsa-bg";
@@ -193,11 +234,12 @@ article[class*="embed"][data-vc-embed-applied] {
         document.head.appendChild(bgStyleElement);
     }
 
-    if (!BANNER_DATA_URL) return;
-    if (bannerStyleElement) bannerStyleElement.remove();
-    bannerStyleElement = document.createElement("style");
-    bannerStyleElement.id = "notSoSeriousCord-hardcoded-banner";
-    bannerStyleElement.textContent = `
+    // Bannière locale hardcodée pour TNSSL (remplace l'image CDN)
+    if (BANNER_DATA_URL) {
+        if (bannerStyleElement) bannerStyleElement.remove();
+        bannerStyleElement = document.createElement("style");
+        bannerStyleElement.id = "notSoSeriousCord-hardcoded-banner";
+        bannerStyleElement.textContent = `
         img[src*="/banners/${HARDCODED_GUILD_ID}/"],
         img[src*="custom_banner_${HARDCODED_GUILD_ID}"] {
             content: url(${BANNER_DATA_URL}) !important;
@@ -213,7 +255,11 @@ article[class*="embed"][data-vc-embed-applied] {
             background-repeat: no-repeat !important;
         }
     `;
-    document.head.appendChild(bannerStyleElement);
+        document.head.appendChild(bannerStyleElement);
+    }
+
+    // Enregistrer les bannières de tous les serveurs
+    registerAllGuildBanners();
 }
 
 function removeHardcodedBanner() {
@@ -221,14 +267,16 @@ function removeHardcodedBanner() {
     bannerStyleElement = null;
     bgStyleElement?.remove();
     bgStyleElement = null;
-    if (BANNER_DATA_URL) {
-        unregisterHardcodedGuildBgs({ [HARDCODED_GUILD_ID]: BANNER_DATA_URL });
+    if (Object.keys(registeredGuildBanners).length > 0) {
+        unregisterHardcodedGuildBgs(registeredGuildBanners);
+        registeredGuildBanners = {};
     }
     if (originalGetGuild && GuildStore?.getGuild) { GuildStore.getGuild = originalGetGuild; originalGetGuild = null; }
     if (originalGetGuilds && GuildStore?.getGuilds) { GuildStore.getGuilds = originalGetGuilds; originalGetGuilds = null; }
 }
 
 function patchGuildStoreForBanner() {
+    // Uniquement pour TNSSL qui utilise une image locale
     if (!BANNER_DATA_URL) return;
     if (GuildStore?.getGuild) {
         originalGetGuild = GuildStore.getGuild;
@@ -520,13 +568,13 @@ function resetAllBotColors(): void {
 // Chaque effet est enregistré dans fakeServerBoost via registerCustomEffect()
 // ══════════════════════════════════════════════════════════════════════════════
 
-const BIRTHDAY_PRIMARY_RGB = "rgb(255, 0, 149)";   // #ff0095
-const NETRICSA_PRIMARY_RGB  = "rgb(36, 148, 219)";  // #2494db
-const KLODOVIK_PRIMARY_RGB  = "rgb(86, 253, 13)";   // #56fd0d
-const GOLDEN_PRIMARY_RGB    = "rgb(191, 155, 48)";  // #bf9b30
-const SILVER_PRIMARY_RGB    = "rgb(192, 192, 192)"; // #c0c0c0
-const BRONZE_PRIMARY_RGB    = "rgb(160, 88, 34)";   // #a05822
-const CELESTIAL_PRIMARY_RGB = "rgb(168, 85, 247)";  // #a855f7
+const BIRTHDAY_PRIMARY_RGB = "rgb(255, 0, 149)"; // #ff0095
+const NETRICSA_PRIMARY_RGB = "rgb(36, 148, 219)"; // #2494db
+
+const GOLDEN_PRIMARY_RGB = "rgb(191, 155, 48)"; // #bf9b30
+const SILVER_PRIMARY_RGB = "rgb(192, 192, 192)"; // #c0c0c0
+const BRONZE_PRIMARY_RGB = "rgb(160, 88, 34)"; // #a05822
+const CELESTIAL_PRIMARY_RGB = "rgb(168, 85, 247)"; // #a855f7
 
 // ── 🎂 HAPPY BIRTHDAY ────────────────────────────────────────────────────────
 
@@ -836,79 +884,6 @@ const NETRICSA_CSS = `
         background-size: 300px auto !important;
     }
     div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-netricsa-voice] { filter: drop-shadow(0 0 3px #2494db) !important; }
-`;
-
-// ── 🦜 KLODOVIK ───────────────────────────────────────────────────────────────
-
-function applyKlodovikEffect() {
-    document.querySelectorAll<HTMLElement>("[data-fsb-klodovik]").forEach(el => {
-        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== KLODOVIK_PRIMARY_RGB) {
-            delete el.dataset.fsbKlodovik; delete el.dataset.fsbCustomAnim;
-            const h = el.closest<HTMLElement>("span[data-fsb-klodovik-header]");
-            if (h) { delete h.dataset.fsbKlodovikHeader; delete h.dataset.fsbCustomAnim; }
-        }
-    });
-    document.querySelectorAll<HTMLElement>("span[data-fsb-klodovik-header]").forEach(h => {
-        if (!h.querySelector("[data-fsb-klodovik]")) { delete h.dataset.fsbKlodovikHeader; delete h.dataset.fsbCustomAnim; }
-    });
-    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-klodovik])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
-        el.dataset.fsbKlodovik = "1"; el.dataset.fsbCustomAnim = "1";
-    });
-    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-klodovik])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
-        el.dataset.fsbKlodovik = "1"; el.dataset.fsbCustomAnim = "1";
-        const h = el.closest<HTMLElement>('span[class*="headerText"]');
-        if (h) { h.dataset.fsbKlodovikHeader = "1"; h.dataset.fsbCustomAnim = "1"; }
-    });
-    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-klodovik])').forEach(el => {
-        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== KLODOVIK_PRIMARY_RGB) return;
-        el.dataset.fsbKlodovik = "1"; el.dataset.fsbCustomAnim = "1";
-    });
-    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-klodovik])').forEach(container => {
-        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
-        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
-        if (!c1 || normalizeColor(c1) !== KLODOVIK_PRIMARY_RGB) return;
-        container.dataset.fsbKlodovik = "1"; container.dataset.fsbCustomAnim = "1";
-        const vc = container.parentElement;
-        if (vc?.dataset.fsbVoiceContainer) { vc.dataset.fsbKlodovikVoice = "1"; vc.dataset.fsbCustomAnim = "1"; }
-    });
-}
-
-function cleanupKlodovikEffect() {
-    document.querySelectorAll<HTMLElement>("[data-fsb-klodovik]").forEach(el => {
-        delete el.dataset.fsbKlodovik; delete el.dataset.fsbCustomAnim;
-        const h = el.closest<HTMLElement>("span[data-fsb-klodovik-header]");
-        if (h) { delete h.dataset.fsbKlodovikHeader; delete h.dataset.fsbCustomAnim; }
-    });
-    document.querySelectorAll<HTMLElement>("[data-fsb-klodovik-voice]").forEach(el => {
-        delete el.dataset.fsbKlodovikVoice; delete el.dataset.fsbCustomAnim;
-    });
-}
-
-const KLODOVIK_CSS = `
-    @keyframes fsb-klodovik-bounce {
-        0% { transform: translateY(0); } 25% { transform: translateY(-3px); }
-        50% { transform: translateY(0); } 75% { transform: translateY(-2px); } 100% { transform: translateY(0); }
-    }
-    div[class*="member__"]:hover span[data-fsb-klodovik] span[class*="name__"],
-    a:hover span[data-fsb-klodovik] span[class*="name__"],
-    span[data-fsb-klodovik]:hover span[class*="name__"] { display: inline-block !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
-    div[role="article"]:hover span[class*="username_"][data-fsb-klodovik],
-    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-klodovik] { display: inline-block !important; vertical-align: middle !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
-    div[class*="member__"]:hover span[data-fsb-klodovik], a:hover span[data-fsb-klodovik], span[data-fsb-klodovik]:hover,
-    div[role="article"]:hover span[class*="headerText"][data-fsb-klodovik-header],
-    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-klodovik-header] { filter: drop-shadow(0 0 3px #56fd0d) !important; }
-    div[role="article"]:hover span[class*="headerText"][data-fsb-klodovik-header] span[class*="botTag"],
-    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-klodovik-header] span[class*="botTag"] { filter: none !important; }
-    div[role="article"]:hover span[class*="username_"][data-fsb-klodovik],
-    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-klodovik] { filter: none !important; }
-    div[class*="members_"]:hover div[data-fsb-klodovik] span[data-fsb-gradient] { display: inline-block !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
-    div[class*="members_"]:hover div[data-fsb-klodovik] { filter: drop-shadow(0 0 3px #56fd0d) !important; }
-    div[class*="voiceUser"]:hover div[data-fsb-klodovik] span[data-fsb-mention-text],
-    div[class*="voiceUser"]:hover div[data-fsb-klodovik] span[data-fsb-gradient]:not([data-fsb-mention]) { display: inline-block !important; animation: fsb-klodovik-bounce 0.5s ease infinite !important; }
-    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-klodovik-voice] { filter: drop-shadow(0 0 3px #56fd0d) !important; }
 `;
 
 // ── 🏆 GOLDEN / 🥈 SILVER / 🥉 BRONZE ───────────────────────────────────────
@@ -1236,7 +1211,6 @@ const CELESTIAL_CSS = `
 const CUSTOM_EFFECTS: CustomEffect[] = [
     { id: "birthday",  styleCSS: BIRTHDAY_CSS,  applyFn: applyBirthdayEffect,  cleanupFn: cleanupBirthdayEffect,  primaryRGB: BIRTHDAY_PRIMARY_RGB },
     { id: "netricsa",  styleCSS: NETRICSA_CSS,  applyFn: applyNetricsaEffect,  cleanupFn: cleanupNetricsaEffect,  primaryRGB: NETRICSA_PRIMARY_RGB },
-    { id: "klodovik",  styleCSS: KLODOVIK_CSS,  applyFn: applyKlodovikEffect,  cleanupFn: cleanupKlodovikEffect,  primaryRGB: KLODOVIK_PRIMARY_RGB },
     {
         id: "medals",
         styleCSS: MEDALS_CSS,
@@ -1250,18 +1224,48 @@ const CUSTOM_EFFECTS: CustomEffect[] = [
 // Définis une constante pour chaque image et réutilise-la sur plusieurs channels.
 // Format : channelId → url
 
-// const BG_GENERAL = "https://exemple.com/general.jpg";
+const BG_FROSTPOST = bgFrostpostB64 ? `data:image/jpeg;base64,${bgFrostpostB64}` : "";
+const BG_KRONOR = bgKronorB64 ? `data:image/jpeg;base64,${bgKronorB64}` : "";
+const BG_LAND_DAMNED = bgLandofTheDamnedB64 ? `data:image/jpeg;base64,${bgLandofTheDamnedB64}` : "";
+const BG_MENTAL_INST = bgMentalInstitutionB64 ? `data:image/jpeg;base64,${bgMentalInstitutionB64}` : "";
+const BG_NETRICSA = bgNetricsaB64 ? `data:image/png;base64,${bgNetricsaB64}` : "";
+const BG_OIL_RIG = bgOilRigB64 ? `data:image/jpeg;base64,${bgOilRigB64}` : "";
+const BG_SARATOGA = bgSaratogaB64 ? `data:image/png;base64,${bgSaratogaB64}` : "";
+const BG_SIRIUS = bgSiriusB64 ? `data:image/jpeg;base64,${bgSiriusB64}` : "";
+const BG_SSS_CENTERPRICE = bgSSSCenterpriceB64 ? `data:image/jpeg;base64,${bgSSSCenterpriceB64}` : "";
 
 const CHANNEL_BGS: Record<string, string> = {
-    // Exemple :
-    // "123456789012345678": BG_GENERAL,  // #général
-    // "234567890123456789": BG_GENERAL,  // #bienvenue (même image)
+    "1464154088492236831": BG_SARATOGA, // #saratoga
+    "1158184382679498832": BG_SARATOGA, // #saratoga
+    "827364829567647777": BG_SARATOGA, // #saratoga
+    "829520141112836158": BG_SARATOGA, // #saratoga
+    "1159552062846156810": BG_SARATOGA, // #saratoga
+    "1159632067072630794": BG_SARATOGA, // #saratoga
+    "1159553247158214737": BG_SARATOGA, // #saratoga
+
+    "1174901601757040700": BG_LAND_DAMNED, // #land-of-the-damned
+    "1278197210470944828": BG_FROSTPOST, // #frostpost
+    "1025941810499039272": BG_OIL_RIG, // #oil-rig
+
+    "1468019853108711474": BG_NETRICSA, // #netricsa
+    "1464063041950974125": BG_NETRICSA, // #netricsa
+    "1469605945687408732": BG_NETRICSA, // #netricsa
+    "1470245567392383019": BG_NETRICSA, // #netricsa
+    "829523675594096650": BG_NETRICSA, // #netricsa
+    "1472390304962445352": BG_NETRICSA, // #netricsa
+
+    "1442594973643178004": BG_SIRIUS, // #sirius
+    "1468008008570241130": BG_KRONOR, // #kronor
+    "1129450972146573431": BG_SSS_CENTERPRICE, // #sss-centerprice
+    "1159549877563445330": BG_MENTAL_INST, // #mental-institution
 };
 
-// Fond par serveur (fallback pour tous les canaux du serveur)
+// Fond par serveur (sidebar via DynamicChannelBackground)
+// Distinct de la bannière Discord affichée dans le profil du serveur.
+const BG_TNSSL = bgTNSSLB64 ? `data:image/jpeg;base64,${bgTNSSLB64}` : "";
+
 const GUILD_BGS: Record<string, string> = {
-    // Exemple :
-    // [HARDCODED_GUILD_ID]: "https://exemple.com/serveur.jpg",
+    [HARDCODED_GUILD_ID]: BG_TNSSL, // TNSSL – fond de sidebar hardcodé
 };
 
 // ── Plugin ────────────────────────────────────────────────────────────────────
@@ -1270,7 +1274,7 @@ export default definePlugin({
     name: "The Not So Serious Cord",
     description: "Apply custom colors to specific bots' messages and names with configurable intensity",
     authors: [Devs.IAmSympathy],
-    dependencies: ["Fake Server Boost Level 2", "Dynamic Channel Backgrounds"],
+    dependencies: ["Fake Server Boost Level 2", "DynamicChannelBackgrounds"],
     settings,
 
     start() {
@@ -1284,7 +1288,7 @@ export default definePlugin({
         registerHardcodedGuildBgs(GUILD_BGS);
 
         // Mettre à jour le fond global quand on change de guild
-        (this as any)._guildSelectListener = () => updateAppBg();
+        (this as any)._guildSelectListener = () => { updateAppBg(); registerAllGuildBanners(); };
         FluxDispatcher.subscribe("GUILD_SELECT", (this as any)._guildSelectListener);
         FluxDispatcher.subscribe("CHANNEL_SELECT", (this as any)._guildSelectListener);
 
@@ -1425,5 +1429,6 @@ export default definePlugin({
         unregisterHardcodedRoleColors(Object.keys(HARDCODED_ROLE_COLORS));
         unregisterHardcodedChannelBgs(CHANNEL_BGS);
         unregisterHardcodedGuildBgs(GUILD_BGS);
+        // Les bannières dynamiques sont désenregistrées dans removeHardcodedBanner()
     },
 });
