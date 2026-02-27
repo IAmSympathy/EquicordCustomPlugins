@@ -16,6 +16,8 @@ interface IFlux {
 // Fonds hardcodés enregistrés par d'autres plugins (ex: botRoleColor)
 const externalChannelBgs: Map<string, string> = new Map();
 const externalGuildBgs: Map<string, string> = new Map();
+// Fonds de sidebar hardcodés (guild → url)
+const externalSidebarBgs: Map<string, string> = new Map();
 
 export function registerHardcodedChannelBgs(bgs: Record<string, string>) {
     for (const [id, url] of Object.entries(bgs)) externalChannelBgs.set(id, url);
@@ -26,16 +28,24 @@ export function unregisterHardcodedChannelBgs(bgs: Record<string, string>) {
 }
 
 export function registerHardcodedGuildBgs(bgs: Record<string, string>) {
-    for (const [id, url] of Object.entries(bgs)) externalGuildBgs.set(id, url);
+    for (const [id, url] of Object.entries(bgs)) {
+        externalGuildBgs.set(id, url);
+        externalSidebarBgs.set(id, url);
+    }
 }
 
 export function unregisterHardcodedGuildBgs(bgs: Record<string, string>) {
-    for (const id of Object.keys(bgs)) externalGuildBgs.delete(id);
+    for (const id of Object.keys(bgs)) {
+        externalGuildBgs.delete(id);
+        externalSidebarBgs.delete(id);
+    }
 }
 
 export const DynBgStore = proxyLazy(() => {
     const channelMap: Map<string, string> = new Map();
     const guildMap: Map<string, string> = new Map();
+    // Fonds de sidebar spécifiques (séparés des fonds de channel)
+    const sidebarMap: Map<string, string> = new Map();
     let globalDefault: string | undefined;
 
     class DynBgStore extends (FluxWP as unknown as IFlux).PersistedStore {
@@ -44,17 +54,21 @@ export const DynBgStore = proxyLazy(() => {
         get globalDefault() { return globalDefault; }
 
         // @ts-ignore
-        initialize(previous: { channelMap: [string, string][], guildMap: [string, string][], globalDefault?: string; } | undefined) {
+        initialize(previous: { channelMap: [string, string][], guildMap: [string, string][], sidebarMap?: [string, string][], globalDefault?: string; } | undefined) {
             if (!previous) return;
 
             channelMap.clear();
             guildMap.clear();
+            sidebarMap.clear();
 
             for (const [id, url] of previous.channelMap ?? []) {
                 channelMap.set(id, url);
             }
             for (const [id, url] of previous.guildMap ?? []) {
                 guildMap.set(id, url);
+            }
+            for (const [id, url] of previous.sidebarMap ?? []) {
+                sidebarMap.set(id, url);
             }
             globalDefault = previous.globalDefault;
         }
@@ -63,28 +77,25 @@ export const DynBgStore = proxyLazy(() => {
             return {
                 channelMap: Array.from(channelMap),
                 guildMap: Array.from(guildMap),
+                sidebarMap: Array.from(sidebarMap),
                 globalDefault,
             };
         }
 
-        getUrlForChannel(channelId: string, guildId?: string | null): string | undefined {
+        getUrlForChannel(channelId: string, _guildId?: string | null): string | undefined {
             // Priorité 1 : fond sauvegardé par l'utilisateur pour ce canal
             if (channelMap.has(channelId)) return channelMap.get(channelId);
-            // Priorité 2 : fond sauvegardé par l'utilisateur pour ce serveur
-            if (guildId && guildMap.has(guildId)) return guildMap.get(guildId);
-            // Priorité 3 : fond hardcodé externe pour ce canal
+            // Priorité 2 : fond hardcodé externe pour ce canal
             if (externalChannelBgs.has(channelId)) return externalChannelBgs.get(channelId);
-            // Priorité 4 : fond hardcodé externe pour ce serveur
-            if (guildId && externalGuildBgs.has(guildId)) return externalGuildBgs.get(guildId);
-            // Priorité 5 : fond global par défaut
+            // Priorité 3 : fond global par défaut
             return globalDefault;
         }
 
         // Résout le fond d'un thread en remontant au parent forum si nécessaire
-        getUrlForThread(channelId: string, parentId: string | null | undefined, guildId?: string | null): string | undefined {
+        getUrlForThread(channelId: string, parentId: string | null | undefined, _guildId?: string | null): string | undefined {
             // Fond propre au thread en priorité
-            const own = this.getUrlForChannel(channelId, guildId);
-            // Si le fond vient du global/guild mais que le parent forum a un fond spécifique, préférer le parent
+            const own = this.getUrlForChannel(channelId);
+            // Si le fond vient du global mais que le parent forum a un fond spécifique, préférer le parent
             if (parentId) {
                 const parentUrl = channelMap.get(parentId) ?? externalChannelBgs.get(parentId);
                 if (parentUrl) return parentUrl;
@@ -92,9 +103,12 @@ export const DynBgStore = proxyLazy(() => {
             return own;
         }
 
-        getForChannel(id: string) { return channelMap.get(id); }
+        /** Retourne le fond de sidebar d'un serveur (ne s'applique PAS aux channels) */
+        getForSidebar(guildId: string): string | undefined {
+            return sidebarMap.get(guildId) ?? externalSidebarBgs.get(guildId);
+        }
 
-        getForGuild(id: string) { return guildMap.get(id); }
+        getForChannel(id: string) { return channelMap.get(id); }
     }
 
     const store = new DynBgStore(FluxDispatcher, {
@@ -111,6 +125,16 @@ export const DynBgStore = proxyLazy(() => {
             store.emitChange();
         },
         // @ts-ignore
+        VC_DYNBG_SIDEBAR_CHANGE({ guildId, url }: { guildId: string; url: string; }) {
+            sidebarMap.set(guildId, url);
+            store.emitChange();
+        },
+        // @ts-ignore
+        VC_DYNBG_SIDEBAR_REMOVE({ guildId }: { guildId: string; }) {
+            sidebarMap.delete(guildId);
+            store.emitChange();
+        },
+        // @ts-ignore
         VC_DYNBG_CHANGE_GLOBAL({ url }: { url?: string; }) {
             globalDefault = url;
             store.emitChange();
@@ -119,6 +143,7 @@ export const DynBgStore = proxyLazy(() => {
         VC_DYNBG_RESET() {
             channelMap.clear();
             guildMap.clear();
+            sidebarMap.clear();
             globalDefault = undefined;
             store.emitChange();
         },
@@ -126,4 +151,3 @@ export const DynBgStore = proxyLazy(() => {
 
     return store;
 });
-

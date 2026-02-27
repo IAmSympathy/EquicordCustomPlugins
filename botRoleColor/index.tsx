@@ -8,7 +8,7 @@ import { definePluginSettings } from "@api/Settings";
 import { Devs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByProps } from "@webpack";
-import { GuildStore } from "@webpack/common";
+import { FluxDispatcher, GuildStore } from "@webpack/common";
 import backgroundImageB64 from "file://./assets/background.png?base64";
 import bannerB64 from "file://./assets/banner.png?base64";
 
@@ -161,9 +161,15 @@ const settings = definePluginSettings({
     }
 });
 
+
 // ── Bannière hardcodée ────────────────────────────────────────────────────────
 
 function applyHardcodedBanner() {
+    // Enregistrer le fond du serveur dans DynBgStore pour que la sidebar l'affiche
+    if (BANNER_DATA_URL) {
+        registerHardcodedGuildBgs({ [HARDCODED_GUILD_ID]: BANNER_DATA_URL });
+    }
+
     if (BACKGROUND_DATA_URL && !bgStyleElement) {
         bgStyleElement = document.createElement("style");
         bgStyleElement.id = "notSoSeriousCord-netricsa-bg";
@@ -216,6 +222,9 @@ function removeHardcodedBanner() {
     bannerStyleElement = null;
     bgStyleElement?.remove();
     bgStyleElement = null;
+    if (BANNER_DATA_URL) {
+        unregisterHardcodedGuildBgs({ [HARDCODED_GUILD_ID]: BANNER_DATA_URL });
+    }
     if (originalGetGuild && GuildStore?.getGuild) { GuildStore.getGuild = originalGetGuild; originalGetGuild = null; }
     if (originalGetGuilds && GuildStore?.getGuilds) { GuildStore.getGuilds = originalGetGuilds; originalGetGuilds = null; }
 }
@@ -1293,6 +1302,11 @@ export default definePlugin({
         registerHardcodedChannelBgs(CHANNEL_BGS);
         registerHardcodedGuildBgs(GUILD_BGS);
 
+        // Mettre à jour le fond global quand on change de guild
+        (this as any)._guildSelectListener = () => updateAppBg();
+        FluxDispatcher.subscribe("GUILD_SELECT", (this as any)._guildSelectListener);
+        FluxDispatcher.subscribe("CHANNEL_SELECT", (this as any)._guildSelectListener);
+
         // Enregistrer tous les effets custom dans fakeServerBoost
         for (const effect of CUSTOM_EFFECTS) {
             registerCustomEffect(effect);
@@ -1415,6 +1429,12 @@ export default definePlugin({
         resetAllBotColors();
         removeHardcodedBanner();
 
+        // Désabonner les listeners de changement de guild
+        if ((this as any)._guildSelectListener) {
+            FluxDispatcher.unsubscribe("GUILD_SELECT", (this as any)._guildSelectListener);
+            FluxDispatcher.unsubscribe("CHANNEL_SELECT", (this as any)._guildSelectListener);
+            (this as any)._guildSelectListener = null;
+        }
 
         // Désenregistrer les effets custom
         for (const effect of CUSTOM_EFFECTS) {

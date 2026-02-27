@@ -12,7 +12,7 @@ import { Devs } from "@utils/constants";
 import { openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
 import { Channel } from "@vencord/discord-types";
-import { ChannelStore, FluxDispatcher, Menu, React, SelectedChannelStore, useEffect, useRef, useState, useStateFromStores } from "@webpack/common";
+import { ChannelStore, FluxDispatcher, Menu, React, SelectedChannelStore, SelectedGuildStore, useStateFromStores } from "@webpack/common";
 
 import { SetBackgroundModal } from "./modal";
 import { DynBgStore } from "./store";
@@ -26,11 +26,13 @@ const settings = definePluginSettings({
         default: 35,
         markers: [0, 25, 50, 75, 100],
         stickToMarkers: false,
+        onChange: () => { updateChatExtBg(); },
     },
     bgColor: {
         type: OptionType.STRING,
         description: "Background color of the chat overlay (hex, e.g. #323339).",
         default: "#323339",
+        onChange: () => { updateChatExtBg(); },
     },
     backgroundSize: {
         type: OptionType.SELECT,
@@ -41,6 +43,14 @@ const settings = definePluginSettings({
             { label: "Contain (letterbox)", value: "contain" },
             { label: "Stretch", value: "100% 100%" },
         ],
+    },
+    sidebarOpacity: {
+        type: OptionType.SLIDER,
+        description: "Opacity of the dark overlay on the sidebar/guilds/titlebar background (0 = no overlay, 100 = fully opaque).",
+        default: 50,
+        markers: [0, 25, 50, 75, 100],
+        stickToMarkers: false,
+        onChange: () => { updateSidebarBg(); },
     },
 });
 
@@ -63,7 +73,6 @@ function hexToRgb(hex: string): [number, number, number] {
 // ─── Style statique ───────────────────────────────────────────────────────────
 
 let globalStyle: HTMLStyleElement | null = null;
-let headerBarStyle: HTMLStyleElement | null = null;
 
 function ensureGlobalStyle() {
     if (globalStyle) return;
@@ -78,29 +87,9 @@ function ensureGlobalStyle() {
     document.head.appendChild(globalStyle);
 }
 
-function updateHeaderBarStyle() {
-    const { bgColor } = settings.store;
-    const [r, g, b] = hexToRgb(bgColor || "#323339");
-
-    if (!headerBarStyle) {
-        headerBarStyle = document.createElement("style");
-        headerBarStyle.id = "vc-dynbg-headerbar";
-        document.head.appendChild(headerBarStyle);
-    }
-    headerBarStyle.textContent = `
-        body [class*="chatHeaderBar_"] {
-            background: rgb(${r},${g},${b}) !important;
-            position: relative !important;
-            z-index: 100 !important;
-        }
-    `;
-}
-
 function removeGlobalStyle() {
     globalStyle?.remove();
     globalStyle = null;
-    headerBarStyle?.remove();
-    headerBarStyle = null;
 }
 
 // ─── Composant interne ────────────────────────────────────────────────────────
@@ -111,119 +100,173 @@ interface WallpaperProps {
 }
 
 function WallpaperInner({ url, size }: WallpaperProps) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const [inputHeight, setInputHeight] = useState(68);
     const { opacity, bgColor } = settings.use(["opacity", "bgColor"]);
-    const scrollerRef = useRef<HTMLElement | null>(null);
-
-    const applyBg = (scroller: HTMLElement, op: number, color: string) => {
-        const [r, g, b] = hexToRgb(color || "#323339");
-        scroller.style.setProperty("background", `rgba(${r},${g},${b},${(op / 100).toFixed(3)})`, "important");
-    };
-
-    useEffect(() => {
-        if (scrollerRef.current) {
-            applyBg(scrollerRef.current, opacity ?? 35, bgColor || "#323339");
-        }
-    }, [opacity, bgColor]);
-
-    useEffect(() => {
-        ensureGlobalStyle();
-
-        const container = containerRef.current;
-        if (!container) return;
-
-        const findScroller = (): HTMLElement | null => {
-            // D'abord remonter les parents directs
-            let el: HTMLElement | null = container;
-            while (el) {
-                if (el.className && el.className.includes("managedReactiveScroller_")) return el;
-                el = el.parentElement;
-            }
-            // Fallback : chercher depuis le chatArea
-            const chatArea = container.closest("[class*='chat_']") as HTMLElement | null;
-            return (
-                chatArea?.querySelector("[class*='managedReactiveScroller_']") as HTMLElement | null
-                ?? chatArea?.querySelector("[class*='scrollerBase_']") as HTMLElement | null
-            );
-        };
-
-        const setupScroller = (scroller: HTMLElement) => {
-            scrollerRef.current = scroller;
-            scroller.classList.add("vc-dynbg-active");
-            applyBg(scroller, settings.store.opacity ?? 35, settings.store.bgColor || "#323339");
-        };
-
-        const scroller = findScroller();
-        if (scroller) setupScroller(scroller);
-
-        const mo = new MutationObserver(() => {
-            const s = findScroller();
-            if (s && s !== scrollerRef.current) setupScroller(s);
-        });
-        mo.observe(document.body, { childList: true, subtree: true });
-
-        const updateInputHeight = () => {
-            const chatArea = container.closest("[class*='chat_']") as HTMLElement | null;
-            if (!chatArea) return;
-            const s = chatArea.querySelector("[class*='managedReactiveScroller_']") as HTMLElement | null;
-            if (!s) return;
-            const chatRect = chatArea.getBoundingClientRect();
-            const scrollerRect = s.getBoundingClientRect();
-            setInputHeight(Math.max(0, chatRect.bottom - scrollerRect.bottom));
-        };
-
-        const chatArea = container.closest("[class*='chat_']") as HTMLElement | null;
-        const textArea = chatArea?.querySelector("[class*='channelTextArea_']") as HTMLElement | null;
-        const ro = new ResizeObserver(updateInputHeight);
-        if (textArea) ro.observe(textArea);
-        updateInputHeight();
-
-        return () => {
-            mo.disconnect();
-            ro.disconnect();
-            if (scrollerRef.current) {
-                scrollerRef.current.classList.remove("vc-dynbg-active");
-                scrollerRef.current.style.background = "";
-                scrollerRef.current = null;
-            }
-        };
-    }, []);
-
     const [r, g, b] = hexToRgb(bgColor || "#323339");
+    const alpha = ((opacity ?? 35) / 100).toFixed(3);
 
     return (
         <>
+            {/* Fond image — positionné absolute dans le conteneur chat injecté par le patch */}
             <div
-                ref={containerRef}
-                className="vc-dynbg-container"
-                style={{ bottom: `${inputHeight}px`, right: "-1px" }}
-            >
-                <div
-                    className="vc-dynbg-image"
-                    style={{
-                        position: "absolute",
-                        inset: 0,
-                        backgroundImage: `url(${url})`,
-                        backgroundSize: size,
-                        backgroundPosition: "center center",
-                        backgroundRepeat: "no-repeat",
-                        willChange: "transform",
-                        transform: "translateZ(0)",
-                        zIndex: 0,
-                    }}
-                />
-            </div>
-            <div style={{
-                position: "absolute",
-                left: 0, right: 0, bottom: 0,
-                height: `${inputHeight}px`,
-                background: `rgb(${r},${g},${b})`,
-                zIndex: 0,
-                pointerEvents: "none",
-            }} />
+                className="vc-dynbg-image-layer"
+                style={{
+                    backgroundImage: `url(${url})`,
+                    backgroundSize: size,
+                    backgroundPosition: "center center",
+                    backgroundRepeat: "no-repeat",
+                    backgroundAttachment: "fixed",
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 0,
+                    pointerEvents: "none",
+                }}
+            />
+            {/* Overlay de couleur semi-transparent par-dessus l'image */}
+            <div
+                className="vc-dynbg-overlay-layer"
+                style={{
+                    background: `rgba(${r},${g},${b},${alpha})`,
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 0,
+                    pointerEvents: "none",
+                }}
+            />
         </>
     );
+}
+
+// ─── Chat extension: header + member list ─────────────────────────────────────
+
+let chatExtStyleEl: HTMLStyleElement | null = null;
+
+function removeChatExtBg() {
+    chatExtStyleEl?.remove();
+    chatExtStyleEl = null;
+}
+
+function updateChatExtBg() {
+    const { backgroundSize, opacity, bgColor } = settings.store;
+
+    const selectedId = SelectedChannelStore.getChannelId();
+    if (!selectedId) { removeChatExtBg(); return; }
+
+    const channel = ChannelStore.getChannel(selectedId);
+    if (!channel) { removeChatExtBg(); return; }
+
+    // Pour les threads, on hérite du fond du parent forum
+    let url: string | undefined;
+    if (channel.type === 11 || channel.type === 12) {
+        url = DynBgStore.getUrlForThread(selectedId, (channel as any).parent_id, channel.guild_id);
+    } else {
+        url = DynBgStore.getUrlForChannel(selectedId, channel.guild_id);
+    }
+
+    if (!url) { removeChatExtBg(); return; }
+
+    if (!chatExtStyleEl) {
+        chatExtStyleEl = document.createElement("style");
+        chatExtStyleEl.id = "vc-dynbg-chat-ext";
+        document.head.appendChild(chatExtStyleEl);
+    }
+
+    const size = (backgroundSize as string) ?? "cover";
+    const [r, g, b] = hexToRgb(bgColor || "#323339");
+    const alpha = ((opacity ?? 35) / 100).toFixed(3);
+
+    // On utilise background-attachment:fixed + pseudo-éléments ::before/::after pour que
+    // l'image couvre exactement le viewport sur chaque section (header, chat, member list).
+    // Le fond du chat lui-même est géré par le patch JS (WallpaperInner injecté dans le scroller).
+    chatExtStyleEl.textContent = `
+        /* ── Zone de messages : rendre transparent pour voir les divs injectés par le patch ── */
+        [class*="chat_"] [class*="messagesWrapper_"],
+        [class*="chat_"] [class*="managedReactiveScroller_"],
+        [class*="chat_"] [class*="scrollerBase_"][class*="auto_"],
+        [class*="chat_"] [class*="scrollerBase_"][class*="thin_"],
+        [class*="chat_"] [class*="scrollerBase_"][class*="none_"] {
+            background: transparent !important;
+        }
+
+        /* ── Supprimer le gradient gris en bas du scroller ── */
+        [class*="scrollerInner_"]::after,
+        [class*="scrollerSpacer_"] {
+            background: transparent !important;
+            background-image: none !important;
+        }
+
+        /* ── Header du salon ── */
+        /* Structure réelle : div.subtitleContainer_ > section.title_ */
+        [class*="subtitleContainer_"] {
+            background: transparent !important;
+            position: relative !important;
+            isolation: isolate !important;
+        }
+        [class*="subtitleContainer_"] > section[class*="title_"] {
+            background: transparent !important;
+            position: relative !important;
+            isolation: isolate !important;
+            z-index: 1 !important;
+        }
+        [class*="subtitleContainer_"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url("${url}");
+            background-size: ${size};
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            z-index: 0;
+            pointer-events: none;
+        }
+        [class*="subtitleContainer_"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(${r},${g},${b},${alpha});
+            z-index: 0;
+            pointer-events: none;
+        }
+        /* S'assurer que le contenu du header reste par dessus les pseudo-éléments */
+        [class*="subtitleContainer_"] > * {
+            position: relative;
+            z-index: 1;
+        }
+
+
+        /* ── Liste des membres (panneau droit) ── */
+        [class*="membersWrap_"] {
+            position: relative !important;
+            isolation: isolate !important;
+            background: transparent !important;
+        }
+        [class*="membersWrap_"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url("${url}");
+            background-size: ${size};
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            z-index: -1;
+            pointer-events: none;
+        }
+        [class*="membersWrap_"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(${r},${g},${b},${alpha});
+            z-index: -1;
+            pointer-events: none;
+        }
+        [class*="membersWrap_"] [class*="members_"],
+        [class*="membersWrap_"] [class*="scroller_"],
+        [class*="membersWrap_"] [class*="scrollerBase_"],
+        [class*="membersWrap_"] [class*="thin_"] {
+            background: transparent !important;
+        }
+    `;
 }
 
 // ─── Voice channel background ─────────────────────────────────────────────────
@@ -421,51 +464,205 @@ function updateForumBg() {
     `;
 }
 
+// ─── Sidebar / guilds / titlebar background ───────────────────────────────────
+
+let sidebarStyleEl: HTMLStyleElement | null = null;
+
+function removeSidebarBg() {
+    sidebarStyleEl?.remove();
+    sidebarStyleEl = null;
+}
+
+function updateSidebarBg() {
+    const guildId = SelectedGuildStore?.getGuildId?.();
+    const bgUrl = guildId ? DynBgStore.getForSidebar(guildId) : undefined;
+
+    if (!bgUrl) { removeSidebarBg(); return; }
+
+    const alpha = ((settings.store.sidebarOpacity ?? 50) / 100).toFixed(3);
+
+    if (!sidebarStyleEl) {
+        sidebarStyleEl = document.createElement("style");
+        sidebarStyleEl.id = "vc-dynbg-sidebar";
+        document.head.appendChild(sidebarStyleEl);
+    }
+
+    // Utiliser background-attachment: fixed + pseudo-éléments avec z-index: -1
+    // pour que l'image soit bien derrière le contenu et ne bloque rien.
+    sidebarStyleEl.textContent = `
+        /* Barre de titre */
+        [class*="bar_c38106"] {
+            position: relative !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            isolation: isolate !important;
+        }
+        [class*="bar_c38106"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url("${bgUrl}");
+            background-size: cover;
+            background-position: left top;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            z-index: -1;
+            pointer-events: none;
+        }
+        [class*="bar_c38106"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,${alpha});
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Liste de serveurs (guilds) */
+        nav[class*="guilds_"] {
+            position: relative !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            isolation: isolate !important;
+        }
+        nav[class*="guilds_"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url("${bgUrl}");
+            background-size: cover;
+            background-position: left top;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            z-index: -1;
+            pointer-events: none;
+        }
+        nav[class*="guilds_"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,${alpha});
+            z-index: -1;
+            pointer-events: none;
+        }
+        nav[class*="guilds_"] [class*="scroller_"],
+        nav[class*="guilds_"] [class*="scrollerBase_"] {
+            background: transparent !important;
+        }
+
+        /* Liste de salons (channel list) */
+        nav[class*="container__2637a"] {
+            position: relative !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            isolation: isolate !important;
+        }
+        nav[class*="container__2637a"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url("${bgUrl}");
+            background-size: cover;
+            background-position: left top;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            z-index: -1;
+            pointer-events: none;
+        }
+        nav[class*="container__2637a"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,${alpha});
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Rendre transparents les enfants directs qui ont leur propre background */
+        [class*="sidebarRegion_"],
+        [class*="sidebarRegionScroller_"],
+        [class*="panels_"],
+        [class*="container_f37cb1"],
+        [class*="scroller__629e4"] {
+            background: transparent !important;
+            background-color: transparent !important;
+        }
+
+        /* Masquer le rectangle gris en bas de la sidebar */
+        [class*="sidebar_"]::after {
+            background: transparent !important;
+        }
+    `;
+}
+
 // ─── Context-menu helpers ──────────────────────────────────────────────────────
 
-function buildMenu(channelId?: string, guildId?: string) {
-const initialUrl = channelId
-? DynBgStore.getForChannel(channelId)
-: guildId ? DynBgStore.getForGuild(guildId) : undefined;
+function buildChannelMenu(channelId: string) {
+    const initialUrl = DynBgStore.getForChannel(channelId);
 
-const setUrl = (url: string) =>
-FluxDispatcher.dispatch({ type: "VC_DYNBG_CHANGE", channelId, guildId, url } as any);
-const removeUrl = () =>
-FluxDispatcher.dispatch({ type: "VC_DYNBG_REMOVE", channelId, guildId } as any);
+    const setUrl = (url: string) =>
+        FluxDispatcher.dispatch({ type: "VC_DYNBG_CHANGE", channelId, url } as any);
+    const removeUrl = () =>
+        FluxDispatcher.dispatch({ type: "VC_DYNBG_REMOVE", channelId } as any);
 
-return (
-<Menu.MenuItem label="Dynamic Background" key="vc-dynbg-menu" id="vc-dynbg-menu">
-<Menu.MenuItem
-    label="Set background image"
-    id="vc-dynbg-set"
-    action={() => openModal(p => (
-        <SetBackgroundModal props={p} onSelect={setUrl} initialUrl={initialUrl}
-            title={channelId ? "Set channel background" : "Set server background"} />
-    ))}
-/>
-<Menu.MenuSeparator />
-<Menu.MenuItem label="Remove background image" id="vc-dynbg-remove" color="danger"
-    disabled={!initialUrl} action={removeUrl} />
-</Menu.MenuItem>
-);
+    return (
+        <Menu.MenuItem label="Dynamic Background" key="vc-dynbg-menu" id="vc-dynbg-menu">
+            <Menu.MenuItem
+                label="Set channel background"
+                id="vc-dynbg-set"
+                action={() => openModal(p => (
+                    <SetBackgroundModal props={p} onSelect={setUrl} initialUrl={initialUrl}
+                        title="Set channel background" />
+                ))}
+            />
+            <Menu.MenuSeparator />
+            <Menu.MenuItem label="Remove channel background" id="vc-dynbg-remove" color="danger"
+                disabled={!initialUrl} action={removeUrl} />
+        </Menu.MenuItem>
+    );
+}
+
+function buildGuildMenu(guildId: string) {
+    const initialSidebarUrl = DynBgStore.getForSidebar(guildId);
+
+    const setSidebar = (url: string) =>
+        FluxDispatcher.dispatch({ type: "VC_DYNBG_SIDEBAR_CHANGE", guildId, url } as any);
+    const removeSidebar = () =>
+        FluxDispatcher.dispatch({ type: "VC_DYNBG_SIDEBAR_REMOVE", guildId } as any);
+
+    return (
+        <Menu.MenuItem label="Dynamic Background" key="vc-dynbg-menu" id="vc-dynbg-menu">
+            <Menu.MenuItem
+                label="Set sidebar background"
+                id="vc-dynbg-sidebar-set"
+                action={() => openModal(p => (
+                    <SetBackgroundModal props={p} onSelect={setSidebar} initialUrl={initialSidebarUrl}
+                        title="Set server sidebar background" />
+                ))}
+            />
+            <Menu.MenuSeparator />
+            <Menu.MenuItem label="Remove sidebar background" id="vc-dynbg-sidebar-remove" color="danger"
+                disabled={!initialSidebarUrl} action={removeSidebar} />
+        </Menu.MenuItem>
+    );
 }
 
 const ChannelContextPatch: NavContextMenuPatchCallback = (children, args) => {
-if (!args.channel) return;
-children.push(buildMenu(args.channel.id, undefined));
+    if (!args.channel) return;
+    children.push(buildChannelMenu(args.channel.id));
 };
 const GuildContextPatch: NavContextMenuPatchCallback = (children, args) => {
     if (!args.guild) return;
-    const item = buildMenu(undefined, args.guild.id);
+    const item = buildGuildMenu(args.guild.id);
     const group = findGroupChildrenByChildId("privacy", children);
     if (group) group.push(item);
     else children.push(item);
 };
 const UserContextPatch: NavContextMenuPatchCallback = (children, args) => {
-if (!args.user) return;
-const dmChannelId = ChannelStore.getDMFromUserId(args.user.id);
-if (!dmChannelId) return;
-children.push(buildMenu(dmChannelId, undefined));
+    if (!args.user) return;
+    const dmChannelId = ChannelStore.getDMFromUserId(args.user.id);
+    if (!dmChannelId) return;
+    children.push(buildChannelMenu(dmChannelId));
 };
 
 // ─── Settings panel ───────────────────────────────────────────────────────────
@@ -543,11 +740,14 @@ contextMenus: {
 
 flux: {
     VOICE_CHANNEL_SELECT: updateVoiceBg,
-    CHANNEL_SELECT: () => { updateVoiceBg(); updateForumBg(); },
-    VC_DYNBG_CHANGE: () => { updateVoiceBg(); updateForumBg(); updateHeaderBarStyle(); },
-    VC_DYNBG_REMOVE: () => { updateVoiceBg(); updateForumBg(); updateHeaderBarStyle(); },
-    VC_DYNBG_RESET: () => { updateVoiceBg(); updateForumBg(); updateHeaderBarStyle(); },
-    VC_DYNBG_CHANGE_GLOBAL: () => { updateVoiceBg(); updateForumBg(); updateHeaderBarStyle(); },
+    CHANNEL_SELECT: () => { updateVoiceBg(); updateForumBg(); updateSidebarBg(); updateChatExtBg(); },
+    GUILD_SELECT: () => { updateSidebarBg(); },
+    VC_DYNBG_CHANGE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); },
+    VC_DYNBG_REMOVE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); },
+    VC_DYNBG_SIDEBAR_CHANGE: () => { updateSidebarBg(); },
+    VC_DYNBG_SIDEBAR_REMOVE: () => { updateSidebarBg(); },
+    VC_DYNBG_RESET: () => { updateVoiceBg(); updateForumBg(); removeSidebarBg(); removeChatExtBg(); },
+    VC_DYNBG_CHANGE_GLOBAL: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); },
 },
 
 settingsAboutComponent: SettingsPanel,
@@ -590,14 +790,17 @@ settingsAboutComponent: SettingsPanel,
 
     start() {
         ensureGlobalStyle();
-        updateHeaderBarStyle();
         updateVoiceBg();
         updateForumBg();
+        updateSidebarBg();
+        updateChatExtBg();
     },
 
     stop() {
         removeGlobalStyle();
         removeVoiceBg();
         removeForumBg();
+        removeSidebarBg();
+        removeChatExtBg();
     },
 });
