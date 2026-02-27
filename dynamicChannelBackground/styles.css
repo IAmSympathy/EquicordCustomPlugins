@@ -1,22 +1,16 @@
 /*
  * Fond injecté par le patch dans le conteneur chat.
- * Les deux divs sont positionnés absolute et s'étendent sur toute la zone.
+ * Pas de z-index — l'ordre DOM suffit : les layers sont insérés en premier (toSpliced(0,0,...)),
+ * le scroller vient après et s'affiche naturellement par-dessus.
  */
 
 .vc-dynbg-image-layer,
 .vc-dynbg-overlay-layer {
     position: absolute;
     inset: 0;
-    z-index: 0;
     pointer-events: none;
 }
 
-/*
- * Le conteneur principal du scroller doit être positionné pour que les divs
- * injectés par le patch (position: absolute) se positionnent par rapport à lui.
- * On rend aussi transparents tous les éléments intermédiaires qui auraient
- * un fond opaque et cacheraient les divs injectés.
- */
 [class*="messagesWrapper_"],
 [class*="managedReactiveScroller_"] {
     position: relative !important;

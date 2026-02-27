@@ -23,16 +23,22 @@ const settings = definePluginSettings({
     opacity: {
         type: OptionType.SLIDER,
         description: "Opacity of the background overlay (0 = fully transparent, 100 = fully opaque).",
-        default: 35,
+        default: 20,
         markers: [0, 25, 50, 75, 100],
         stickToMarkers: false,
         onChange: () => { updateChatExtBg(); },
     },
     bgColor: {
         type: OptionType.STRING,
-        description: "Background color of the chat overlay (hex, e.g. #323339).",
-        default: "#323339",
+        description: "Background color of the chat overlay (hex, e.g. #000000).",
+        default: "#000000",
         onChange: () => { updateChatExtBg(); },
+    },
+    panelColor: {
+        type: OptionType.STRING,
+        description: "Color of the channel list, member list and channel header panels (hex, e.g. #323339). Should match your Discord theme's background.",
+        default: "#323339",
+        onChange: () => { updateChatExtBg(); updateSidebarBg(); },
     },
     backgroundSize: {
         type: OptionType.SELECT,
@@ -47,7 +53,7 @@ const settings = definePluginSettings({
     sidebarOpacity: {
         type: OptionType.SLIDER,
         description: "Opacity of the dark overlay on the sidebar/guilds/titlebar background (0 = no overlay, 100 = fully opaque).",
-        default: 50,
+        default: 60,
         markers: [0, 25, 50, 75, 100],
         stickToMarkers: false,
         onChange: () => { updateSidebarBg(); },
@@ -100,13 +106,14 @@ interface WallpaperProps {
 }
 
 function WallpaperInner({ url, size }: WallpaperProps) {
-    const { opacity, bgColor } = settings.use(["opacity", "bgColor"]);
+    const { opacity, bgColor, panelColor } = settings.use(["opacity", "bgColor", "panelColor"]);
     const [r, g, b] = hexToRgb(bgColor || "#323339");
     const alpha = ((opacity ?? 35) / 100).toFixed(3);
+    const pc = panelColor || "#313338";
 
     return (
         <>
-            {/* Fond image — positionné absolute dans le conteneur chat injecté par le patch */}
+            {/* Fond image */}
             <div
                 className="vc-dynbg-image-layer"
                 style={{
@@ -117,21 +124,29 @@ function WallpaperInner({ url, size }: WallpaperProps) {
                     backgroundAttachment: "fixed",
                     position: "absolute",
                     inset: 0,
-                    zIndex: 0,
                     pointerEvents: "none",
                 }}
             />
-            {/* Overlay de couleur semi-transparent par-dessus l'image */}
+            {/* Overlay couleur semi-transparent */}
             <div
                 className="vc-dynbg-overlay-layer"
                 style={{
                     background: `rgba(${r},${g},${b},${alpha})`,
                     position: "absolute",
                     inset: 0,
-                    zIndex: 0,
                     pointerEvents: "none",
                 }}
             />
+            {/* Bloc solide en bas — couvre la zone sous la barre de saisie */}
+            <div style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: "52px",
+                background: pc,
+                pointerEvents: "none",
+            }} />
         </>
     );
 }
@@ -146,7 +161,7 @@ function removeChatExtBg() {
 }
 
 function updateChatExtBg() {
-    const { backgroundSize, opacity, bgColor } = settings.store;
+    const { backgroundSize, panelColor } = settings.store;
 
     const selectedId = SelectedChannelStore.getChannelId();
     if (!selectedId) { removeChatExtBg(); return; }
@@ -154,7 +169,6 @@ function updateChatExtBg() {
     const channel = ChannelStore.getChannel(selectedId);
     if (!channel) { removeChatExtBg(); return; }
 
-    // Pour les threads, on hérite du fond du parent forum
     let url: string | undefined;
     if (channel.type === 11 || channel.type === 12) {
         url = DynBgStore.getUrlForThread(selectedId, (channel as any).parent_id, channel.guild_id);
@@ -164,21 +178,29 @@ function updateChatExtBg() {
 
     if (!url) { removeChatExtBg(); return; }
 
-    if (!chatExtStyleEl) {
-        chatExtStyleEl = document.createElement("style");
-        chatExtStyleEl.id = "vc-dynbg-chat-ext";
-        document.head.appendChild(chatExtStyleEl);
-    }
+    chatExtStyleEl?.remove();
+    chatExtStyleEl = null;
+
+    const chatBg = panelColor || "#313338";
+
+    chatExtStyleEl = document.createElement("style");
+    chatExtStyleEl.id = "vc-dynbg-chat-ext";
+    document.head.appendChild(chatExtStyleEl);
 
     const size = (backgroundSize as string) ?? "cover";
-    const [r, g, b] = hexToRgb(bgColor || "#323339");
-    const alpha = ((opacity ?? 35) / 100).toFixed(3);
 
-    // On utilise background-attachment:fixed + pseudo-éléments ::before/::after pour que
-    // l'image couvre exactement le viewport sur chaque section (header, chat, member list).
-    // Le fond du chat lui-même est géré par le patch JS (WallpaperInner injecté dans le scroller).
     chatExtStyleEl.textContent = `
-        /* ── Zone de messages : rendre transparent pour voir les divs injectés par le patch ── */
+        /* ── Supprimer gradient gris au-dessus de la barre de saisie ── */
+        [class*="floatingBars_"] {
+            display: none !important;
+        }
+
+        /* ── Masquer le ::after natif Discord sur le conteneur children_ ── */
+        div[class*="children_"]::after {
+            display: none !important;
+        }
+
+        /* ── Zone de messages : transparente pour les divs injectés ── */
         [class*="chat_"] [class*="messagesWrapper_"],
         [class*="chat_"] [class*="managedReactiveScroller_"],
         [class*="chat_"] [class*="scrollerBase_"][class*="auto_"],
@@ -187,15 +209,8 @@ function updateChatExtBg() {
             background: transparent !important;
         }
 
-        /* ── Supprimer le gradient gris en bas du scroller ── */
-        [class*="scrollerInner_"]::after,
-        [class*="scrollerSpacer_"] {
-            background: transparent !important;
-            background-image: none !important;
-        }
 
-        /* ── Header du salon ── */
-        /* Structure réelle : div.subtitleContainer_ > section.title_ */
+        /* ── Header du salon — fond simple + fondu vers le bas dans la zone de chat ── */
         [class*="subtitleContainer_"] {
             background: transparent !important;
             position: relative !important;
@@ -223,18 +238,16 @@ function updateChatExtBg() {
             content: "";
             position: absolute;
             inset: 0;
-            background: rgba(${r},${g},${b},${alpha});
+            background: ${chatBg};
             z-index: 0;
             pointer-events: none;
         }
-        /* S'assurer que le contenu du header reste par dessus les pseudo-éléments */
         [class*="subtitleContainer_"] > * {
             position: relative;
             z-index: 1;
         }
 
-
-        /* ── Liste des membres (panneau droit) ── */
+        /* ── Liste des membres — fond simple, sans fondu interne ── */
         [class*="membersWrap_"] {
             position: relative !important;
             isolation: isolate !important;
@@ -256,7 +269,7 @@ function updateChatExtBg() {
             content: "";
             position: absolute;
             inset: 0;
-            background: rgba(${r},${g},${b},${alpha});
+            background: ${chatBg};
             z-index: -1;
             pointer-events: none;
         }
@@ -264,6 +277,13 @@ function updateChatExtBg() {
         [class*="membersWrap_"] [class*="scroller_"],
         [class*="membersWrap_"] [class*="scrollerBase_"],
         [class*="membersWrap_"] [class*="thin_"] {
+            background: transparent !important;
+        }
+
+        /* ── Nameplates membres : fond transparent ── */
+        [class*="membersWrap_"] [class*="member_"],
+        [class*="membersWrap_"] [class*="container_"][class*="clickable_"],
+        [class*="membersWrap_"] [class*="childContainer_"] {
             background: transparent !important;
         }
     `;
@@ -481,16 +501,19 @@ function updateSidebarBg() {
 
     const alpha = ((settings.store.sidebarOpacity ?? 50) / 100).toFixed(3);
 
-    if (!sidebarStyleEl) {
-        sidebarStyleEl = document.createElement("style");
-        sidebarStyleEl.id = "vc-dynbg-sidebar";
-        document.head.appendChild(sidebarStyleEl);
-    }
+    sidebarStyleEl?.remove();
+    sidebarStyleEl = null;
+
+    const channelListBg = settings.store.panelColor || "#313338";
+
+    sidebarStyleEl = document.createElement("style");
+    sidebarStyleEl.id = "vc-dynbg-sidebar";
+    document.head.appendChild(sidebarStyleEl);
 
     // Utiliser background-attachment: fixed + pseudo-éléments avec z-index: -1
     // pour que l'image soit bien derrière le contenu et ne bloque rien.
     sidebarStyleEl.textContent = `
-        /* Barre de titre */
+        /* ── Barre de titre ── */
         [class*="bar_c38106"] {
             position: relative !important;
             background: transparent !important;
@@ -518,12 +541,11 @@ function updateSidebarBg() {
             pointer-events: none;
         }
 
-        /* Liste de serveurs (guilds) */
+        /* ── Liste de serveurs (guilds) ── */
         nav[class*="guilds_"] {
             position: relative !important;
             background: transparent !important;
             background-color: transparent !important;
-            isolation: isolate !important;
         }
         nav[class*="guilds_"]::before {
             content: "";
@@ -534,7 +556,7 @@ function updateSidebarBg() {
             background-position: left top;
             background-repeat: no-repeat;
             background-attachment: fixed;
-            z-index: -1;
+            z-index: 0;
             pointer-events: none;
         }
         nav[class*="guilds_"]::after {
@@ -542,20 +564,32 @@ function updateSidebarBg() {
             position: absolute;
             inset: 0;
             background: rgba(0,0,0,${alpha});
-            z-index: -1;
+            z-index: 0;
             pointer-events: none;
         }
         nav[class*="guilds_"] [class*="scroller_"],
         nav[class*="guilds_"] [class*="scrollerBase_"] {
             background: transparent !important;
+            background-color: transparent !important;
+            position: relative !important;
+            z-index: 1 !important;
         }
 
-        /* Liste de salons (channel list) */
+        /* ── Supprimer les coins arrondis structurels de la sidebar ── */
+        [class*="sidebarListRounded_"] {
+            border-radius: 0 !important;
+        }
+        [class*="container_f37cb1"],
+        [class*="container_f37cb1"] > [class*="animatedContainer"],
+        [class*="container_f37cb1"] > [class*="animatedContainer"] > [class*="bannerImage"],
+        [class*="container_f37cb1"] > [class*="animatedContainer"] > [class*="bannerImage"] img {
+            border-radius: 0 !important;
+        }
         nav[class*="container__2637a"] {
             position: relative !important;
+            border-right: 1px solid var(--background-modifier-accent) !important;
+            overflow: hidden !important;
             background: transparent !important;
-            background-color: transparent !important;
-            isolation: isolate !important;
         }
         nav[class*="container__2637a"]::before {
             content: "";
@@ -566,31 +600,28 @@ function updateSidebarBg() {
             background-position: left top;
             background-repeat: no-repeat;
             background-attachment: fixed;
-            z-index: -1;
+            z-index: 0;
             pointer-events: none;
         }
         nav[class*="container__2637a"]::after {
             content: "";
             position: absolute;
             inset: 0;
-            background: rgba(0,0,0,${alpha});
-            z-index: -1;
+            background: ${channelListBg};
+            z-index: 1;
             pointer-events: none;
         }
-
-        /* Rendre transparents les enfants directs qui ont leur propre background */
-        [class*="sidebarRegion_"],
-        [class*="sidebarRegionScroller_"],
-        [class*="panels_"],
-        [class*="container_f37cb1"],
-        [class*="scroller__629e4"] {
-            background: transparent !important;
-            background-color: transparent !important;
+        nav[class*="container__2637a"] > * {
+            position: relative !important;
+            z-index: 2 !important;
         }
 
-        /* Masquer le rectangle gris en bas de la sidebar */
+
+        /* ── Autres éléments transparents ── */
+        [class*="panels_"],
         [class*="sidebar_"]::after {
             background: transparent !important;
+            background-color: transparent !important;
         }
     `;
 }
@@ -742,8 +773,8 @@ flux: {
     VOICE_CHANNEL_SELECT: updateVoiceBg,
     CHANNEL_SELECT: () => { updateVoiceBg(); updateForumBg(); updateSidebarBg(); updateChatExtBg(); },
     GUILD_SELECT: () => { updateSidebarBg(); },
-    VC_DYNBG_CHANGE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); },
-    VC_DYNBG_REMOVE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); },
+    VC_DYNBG_CHANGE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); updateSidebarBg(); },
+    VC_DYNBG_REMOVE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); updateSidebarBg(); },
     VC_DYNBG_SIDEBAR_CHANGE: () => { updateSidebarBg(); },
     VC_DYNBG_SIDEBAR_REMOVE: () => { updateSidebarBg(); },
     VC_DYNBG_RESET: () => { updateVoiceBg(); updateForumBg(); removeSidebarBg(); removeChatExtBg(); },
