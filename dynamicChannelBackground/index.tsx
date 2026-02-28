@@ -713,7 +713,6 @@ function updateSidebarBg() {
 
 
         /* ── Autres éléments transparents ── */
-        [class*="panels_"],
         [class*="sidebar_"]::after {
             background: transparent !important;
             background-color: transparent !important;
