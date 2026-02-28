@@ -7,12 +7,13 @@
 import "./styles.css";
 
 import { findGroupChildrenByChildId, NavContextMenuPatchCallback } from "@api/ContextMenu";
+import { DataStore } from "@api/index";
 import { definePluginSettings } from "@api/Settings";
 import { Devs } from "@utils/constants";
 import { openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
 import { Channel } from "@vencord/discord-types";
-import { ChannelStore, FluxDispatcher, Menu, React, SelectedChannelStore, SelectedGuildStore, useStateFromStores } from "@webpack/common";
+import { ChannelStore, FluxDispatcher, GuildStore, IconUtils, Menu, React, SelectedChannelStore, SelectedGuildStore, useStateFromStores } from "@webpack/common";
 
 import { SetBackgroundModal } from "./modal";
 import { DynBgStore } from "./store";
@@ -642,11 +643,28 @@ function removeSidebarBg() {
 
 function updateSidebarBg() {
     const guildId = SelectedGuildStore?.getGuildId?.();
-    const bgUrl = guildId ? DynBgStore.getForSidebar(guildId) : undefined;
+    if (!guildId) { removeSidebarBg(); return; }
 
-    if (!bgUrl) { removeSidebarBg(); return; }
+    // Priorité 1 : fond custom DynBg
+    const customUrl = DynBgStore.getForSidebar(guildId);
+    if (customUrl) { _applySidebarBg(customUrl); return; }
 
-    const alpha = ((settings.store.sidebarOpacity ?? 50) / 100).toFixed(3);
+    // Priorité 2 : bannière Custom Server Banners → Priorité 3 : bannière Discord native → Priorité 4 : icône du serveur
+    DataStore.get<Record<string, string>>("customServerBanners").then(banners => {
+        const guild = GuildStore.getGuild(guildId);
+
+        const url =
+            banners?.[guildId] ??
+            (guild ? (IconUtils.getGuildBannerURL(guild, true) ?? undefined) : undefined) ??
+            (guild?.icon ? (IconUtils.getGuildIconURL({ id: guild.id, icon: guild.icon, canAnimate: true }) ?? undefined) : undefined);
+
+        if (url) _applySidebarBg(url);
+        else removeSidebarBg();
+    });
+}
+
+function _applySidebarBg(bgUrl: string) {
+    const alpha = ((settings.store.sidebarOpacity ?? 60) / 100).toFixed(3);
 
     sidebarStyleEl?.remove();
     sidebarStyleEl = null;
@@ -926,6 +944,7 @@ flux: {
     VOICE_CHANNEL_SELECT: () => { updateVoiceBg(); updateChatExtBg(); },
     CHANNEL_SELECT: () => { updateVoiceBg(); updateForumBg(); updateSidebarBg(); updateChatExtBg(); },
     GUILD_SELECT: () => { updateSidebarBg(); },
+    GUILD_UPDATE: () => { updateSidebarBg(); },
     VC_DYNBG_CHANGE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); updateSidebarBg(); },
     VC_DYNBG_REMOVE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); updateSidebarBg(); },
     VC_DYNBG_SIDEBAR_CHANGE: () => { updateSidebarBg(); },
