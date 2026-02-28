@@ -58,6 +58,12 @@ const settings = definePluginSettings({
             { label: "Stretch", value: "100% 100%" },
         ],
     },
+    transparentTheme: {
+        type: OptionType.BOOLEAN,
+        description: "Mode thème transparent (Mica/Glass) : rend la liste des salons, la liste des membres et le user panel transparents pour être compatibles avec les thèmes qui utilisent la transparence (ex: Discord Mica).",
+        default: false,
+        onChange: () => { updateSidebarBg(); updateChatExtBg(); },
+    },
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -227,8 +233,10 @@ function updateChatExtBg() {
                 background: transparent !important;
             }
 
-            [class*="subtitleContainer_"] {
-                background: var(--background-primary) !important;
+            [class*="subtitleContainer_"],
+            [class*="subtitleContainer_"] section,
+            [class*="subtitleContainer_"] [class*="container__"] {
+                background: ${settings.store.transparentTheme ? "transparent" : "var(--background-primary)"} !important;
             }
 
             /* ── Sidebar du thread vocal : image + overlay ── */
@@ -332,6 +340,17 @@ function updateChatExtBg() {
             position: relative;
             z-index: 1;
         }
+    ` : settings.store.transparentTheme ? `
+        /* ── Mode thème transparent : liste des membres transparente ── */
+        [class*="membersWrap_"] {
+            background: transparent !important;
+        }
+        [class*="membersWrap_"] [class*="members_"],
+        [class*="membersWrap_"] [class*="scroller_"],
+        [class*="membersWrap_"] [class*="scrollerBase_"],
+        [class*="membersWrap_"] [class*="thin_"] {
+            background: transparent !important;
+        }
     ` : `
         /* ── Liste des membres — fond natif Discord (bloque l'image fixed) ── */
         [class*="membersWrap_"] {
@@ -360,10 +379,21 @@ function updateChatExtBg() {
             background: transparent !important;
         }
 
+        ${settings.store.transparentTheme ? `
+        /* ── Mode thème transparent : header transparent ── */
+        [class*="subtitleContainer_"],
+        [class*="subtitleContainer_"] section,
+        [class*="subtitleContainer_"] [class*="container__"] {
+            background: transparent !important;
+        }
+        ` : `
         /* ── Header du salon — fond natif Discord (bloque l'image fixed) ── */
-        [class*="subtitleContainer_"] {
+        [class*="subtitleContainer_"],
+        [class*="subtitleContainer_"] section,
+        [class*="subtitleContainer_"] [class*="container__"] {
             background: var(--background-primary) !important;
         }
+        `}
 
         ${membersSidebarCss}
     `;
@@ -706,11 +736,40 @@ function updateSidebarBg() {
         [class*="container_f37cb1"] > [class*="animatedContainer"] > [class*="bannerImage"] img {
             border-radius: 0 !important;
         }
-        /* ── Liste de salons — fond natif Discord (bloque l'image de la guild bar) ── */
+        /* ── Liste de salons ── */
+        ${settings.store.transparentTheme ? `
+        /* Mode thème transparent : on laisse la liste des salons, la liste des membres et le user panel transparents */
+        nav[class*="container__2637a"] {
+            background: transparent !important;
+        }
+        [class*="sidebar_"] {
+            background: transparent !important;
+        }
+        /* User panel : totalement opaque pour ne pas être invisible */
+        [class*="panels__"] {
+            background: transparent !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        [class*="container__37e49"] {
+            background: transparent !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        /* Liste des membres */
+        [class*="membersWrap_"] {
+            background: transparent !important;
+        }
+        [class*="members_"],
+        [class*="member_"] {
+            background: transparent !important;
+        }
+        ` : `
+        /* Mode normal : fond natif Discord sur la liste des salons (bloque l'image de la guild bar) */
         nav[class*="container__2637a"] {
             background: var(--background-secondary) !important;
         }
-
+        `}
 
         /* ── Autres éléments transparents ── */
         [class*="sidebar_"]::after {

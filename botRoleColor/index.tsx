@@ -1235,6 +1235,8 @@ const BG_SIRIUS = bgSiriusB64 ? `data:image/jpeg;base64,${bgSiriusB64}` : "";
 const BG_SSS_CENTERPRICE = bgSSSCenterpriceB64 ? `data:image/jpeg;base64,${bgSSSCenterpriceB64}` : "";
 
 const CHANNEL_BGS: Record<string, string> = {
+    "1470500922726809600": BG_SARATOGA, // #saratoga
+
     "1464154088492236831": BG_SARATOGA, // #saratoga
     "1158184382679498832": BG_SARATOGA, // #saratoga
     "827364829567647777": BG_SARATOGA, // #saratoga
@@ -1256,6 +1258,9 @@ const CHANNEL_BGS: Record<string, string> = {
 
     "1442594973643178004": BG_SIRIUS, // #sirius
     "1468008008570241130": BG_KRONOR, // #kronor
+    "1466318031025209477": BG_KRONOR, // #kronor
+    "1466318046632087637": BG_KRONOR, // #kronor
+    "1466219791025963245": BG_SIRIUS, // #sirius
     "1129450972146573431": BG_SSS_CENTERPRICE, // #sss-centerprice
     "1159549877563445330": BG_MENTAL_INST, // #mental-institution
 };
