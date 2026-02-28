@@ -17,6 +17,7 @@ import bgLandofTheDamnedB64 from "file://./assets/BGs/Channels/LandofTheDamned.j
 import bgMentalInstitutionB64 from "file://./assets/BGs/Channels/MentalInstitution.jpg?base64";
 import bgNetricsaB64 from "file://./assets/BGs/Channels/Netricsa.png?base64";
 import bgOilRigB64 from "file://./assets/BGs/Channels/OilRig.jpg?base64";
+import bgSiberiaB64 from "file://./assets/BGs/Channels/Siberia.jpg?base64";
 import bgSaratogaB64 from "file://./assets/BGs/Channels/Saratoga.png?base64";
 import bgSiriusB64 from "file://./assets/BGs/Channels/Sirius.jpg?base64";
 import bgSSSCenterpriceB64 from "file://./assets/BGs/Channels/SSSCenterprice.jpg?base64";
@@ -1230,6 +1231,7 @@ const BG_LAND_DAMNED = bgLandofTheDamnedB64 ? `data:image/jpeg;base64,${bgLandof
 const BG_MENTAL_INST = bgMentalInstitutionB64 ? `data:image/jpeg;base64,${bgMentalInstitutionB64}` : "";
 const BG_NETRICSA = bgNetricsaB64 ? `data:image/png;base64,${bgNetricsaB64}` : "";
 const BG_OIL_RIG = bgOilRigB64 ? `data:image/jpeg;base64,${bgOilRigB64}` : "";
+const BG_SIBERIA = bgSiberiaB64 ? `data:image/jpeg;base64,${bgSiberiaB64}` : "";
 const BG_SARATOGA = bgSaratogaB64 ? `data:image/png;base64,${bgSaratogaB64}` : "";
 const BG_SIRIUS = bgSiriusB64 ? `data:image/jpeg;base64,${bgSiriusB64}` : "";
 const BG_SSS_CENTERPRICE = bgSSSCenterpriceB64 ? `data:image/jpeg;base64,${bgSSSCenterpriceB64}` : "";
@@ -1248,6 +1250,7 @@ const CHANNEL_BGS: Record<string, string> = {
     "1174901601757040700": BG_LAND_DAMNED, // #land-of-the-damned
     "1278197210470944828": BG_FROSTPOST, // #frostpost
     "1025941810499039272": BG_OIL_RIG, // #oil-rig
+    "829527572374224916": BG_SIBERIA, // #siberia
 
     "1468019853108711474": BG_NETRICSA, // #netricsa
     "1464063041950974125": BG_NETRICSA, // #netricsa
