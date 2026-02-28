@@ -553,7 +553,7 @@ function updateForumBg() {
     // overlayColor : couleur de l'overlay de l'image
     const [r, g, b] = hexToRgb(overlayColor || "#000000");
     const alpha = ((overlayOpacity ?? 20) / 100).toFixed(3);
-    const alphaDark = Math.min(Math.max(((overlayOpacity ?? 20) / 100) * 1.5, 0.75), 0.92).toFixed(3);
+    const alphaDark = Math.min(Math.max(((overlayOpacity ?? 20) / 100), 0.75), 0.92).toFixed(3);
     // discordColor : couleur des plaques (cards, header, recherche, tags)
     const [dr, dg, db] = hexToRgb((discordColor as string) || "#323339");
 
