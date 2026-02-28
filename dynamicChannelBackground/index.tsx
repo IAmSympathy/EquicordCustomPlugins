@@ -7,12 +7,13 @@
 import "./styles.css";
 
 import { findGroupChildrenByChildId, NavContextMenuPatchCallback } from "@api/ContextMenu";
+import { DataStore } from "@api/index";
 import { definePluginSettings } from "@api/Settings";
 import { Devs } from "@utils/constants";
 import { openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
 import { Channel } from "@vencord/discord-types";
-import { ChannelStore, FluxDispatcher, Menu, React, SelectedChannelStore, SelectedGuildStore, useStateFromStores } from "@webpack/common";
+import { ChannelStore, FluxDispatcher, GuildStore, IconUtils, Menu, React, SelectedChannelStore, SelectedGuildStore, useStateFromStores } from "@webpack/common";
 
 import { SetBackgroundModal } from "./modal";
 import { DynBgStore } from "./store";
@@ -239,6 +240,16 @@ function updateChatExtBg() {
                 background: ${settings.store.transparentTheme ? "transparent" : "var(--background-primary)"} !important;
             }
 
+            /* ── Barre de notification de thread (ex: post verrouillé) ── */
+            [class*="chatHeaderBar_"] {
+                background: var(--background-primary) !important;
+                position: relative !important;
+                z-index: 2 !important;
+            }
+            [class*="chatHeaderBar_"] * {
+                color: var(--text-default) !important;
+            }
+
             /* ── Sidebar du thread vocal : image + overlay ── */
             [class*="membersWrap_"] {
                 position: relative !important;
@@ -351,6 +362,7 @@ function updateChatExtBg() {
         [class*="membersWrap_"] [class*="thin_"] {
             background: transparent !important;
         }
+}
     ` : `
         /* ── Liste des membres — fond natif Discord (bloque l'image fixed) ── */
         [class*="membersWrap_"] {
@@ -394,6 +406,16 @@ function updateChatExtBg() {
             background: var(--background-primary) !important;
         }
         `}
+
+        /* ── Barre de notification de thread (ex: post verrouillé) ── */
+        [class*="chatHeaderBar_"] {
+            background: var(--background-primary) !important;
+            position: relative !important;
+            z-index: 2 !important;
+        }
+        [class*="chatHeaderBar_"] * {
+            color: var(--text-default) !important;
+        }
 
         ${membersSidebarCss}
     `;
@@ -552,7 +574,7 @@ function updateForumBg() {
     // overlayColor : couleur de l'overlay de l'image
     const [r, g, b] = hexToRgb(overlayColor || "#000000");
     const alpha = ((overlayOpacity ?? 20) / 100).toFixed(3);
-    const alphaDark = Math.min(((overlayOpacity ?? 20) / 100) * 1.5, 1).toFixed(3);
+    const alphaDark = Math.min(Math.max(((overlayOpacity ?? 20) / 100) * 1.25, 0.75), 0.92).toFixed(3);
     // discordColor : couleur des plaques (cards, header, recherche, tags)
     const [dr, dg, db] = hexToRgb((discordColor as string) || "#323339");
 
@@ -642,11 +664,28 @@ function removeSidebarBg() {
 
 function updateSidebarBg() {
     const guildId = SelectedGuildStore?.getGuildId?.();
-    const bgUrl = guildId ? DynBgStore.getForSidebar(guildId) : undefined;
+    if (!guildId) { removeSidebarBg(); return; }
 
-    if (!bgUrl) { removeSidebarBg(); return; }
+    // Priorité 1 : fond custom DynBg
+    const customUrl = DynBgStore.getForSidebar(guildId);
+    if (customUrl) { _applySidebarBg(customUrl); return; }
 
-    const alpha = ((settings.store.sidebarOpacity ?? 50) / 100).toFixed(3);
+    // Priorité 2 : bannière Custom Server Banners → Priorité 3 : bannière Discord native → Priorité 4 : icône du serveur
+    DataStore.get<Record<string, string>>("customServerBanners").then(banners => {
+        const guild = GuildStore.getGuild(guildId);
+
+        const url =
+            banners?.[guildId] ??
+            (guild ? (IconUtils.getGuildBannerURL(guild, true) ?? undefined) : undefined) ??
+            (guild?.icon ? (IconUtils.getGuildIconURL({ id: guild.id, icon: guild.icon, canAnimate: true }) ?? undefined) : undefined);
+
+        if (url) _applySidebarBg(url);
+        else removeSidebarBg();
+    });
+}
+
+function _applySidebarBg(bgUrl: string) {
+    const alpha = ((settings.store.sidebarOpacity ?? 60) / 100).toFixed(3);
 
     sidebarStyleEl?.remove();
     sidebarStyleEl = null;
@@ -926,6 +965,7 @@ flux: {
     VOICE_CHANNEL_SELECT: () => { updateVoiceBg(); updateChatExtBg(); },
     CHANNEL_SELECT: () => { updateVoiceBg(); updateForumBg(); updateSidebarBg(); updateChatExtBg(); },
     GUILD_SELECT: () => { updateSidebarBg(); },
+    GUILD_UPDATE: () => { updateSidebarBg(); },
     VC_DYNBG_CHANGE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); updateSidebarBg(); },
     VC_DYNBG_REMOVE: () => { updateVoiceBg(); updateForumBg(); updateChatExtBg(); updateSidebarBg(); },
     VC_DYNBG_SIDEBAR_CHANGE: () => { updateSidebarBg(); },
