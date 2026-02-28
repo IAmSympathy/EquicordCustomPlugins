@@ -240,6 +240,16 @@ function updateChatExtBg() {
                 background: ${settings.store.transparentTheme ? "transparent" : "var(--background-primary)"} !important;
             }
 
+            /* ── Barre de notification de thread (ex: post verrouillé) ── */
+            [class*="chatHeaderBar_"] {
+                background: var(--background-primary) !important;
+                position: relative !important;
+                z-index: 2 !important;
+            }
+            [class*="chatHeaderBar_"] * {
+                color: var(--text-default) !important;
+            }
+
             /* ── Sidebar du thread vocal : image + overlay ── */
             [class*="membersWrap_"] {
                 position: relative !important;
@@ -352,6 +362,7 @@ function updateChatExtBg() {
         [class*="membersWrap_"] [class*="thin_"] {
             background: transparent !important;
         }
+}
     ` : `
         /* ── Liste des membres — fond natif Discord (bloque l'image fixed) ── */
         [class*="membersWrap_"] {
@@ -395,6 +406,16 @@ function updateChatExtBg() {
             background: var(--background-primary) !important;
         }
         `}
+
+        /* ── Barre de notification de thread (ex: post verrouillé) ── */
+        [class*="chatHeaderBar_"] {
+            background: var(--background-primary) !important;
+            position: relative !important;
+            z-index: 2 !important;
+        }
+        [class*="chatHeaderBar_"] * {
+            color: var(--text-default) !important;
+        }
 
         ${membersSidebarCss}
     `;
