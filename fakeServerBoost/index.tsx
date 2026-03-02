@@ -1312,7 +1312,7 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
     const img = document.createElement("img");
     img.src = iconUrl;
     img.dataset.fsbRoleIcon = "1";
-    img.style.cssText = "width:14px;height:14px;vertical-align:baseline;border-radius:2px;margin-left:3px;display:inline-block;";
+    img.style.cssText = "width:14px;height:14px;vertical-align:baseline;border-radius:2px;margin-left:3px;transform:translateY(4px);display:inline-block;";
 
     // Insérer à l'intérieur de div.usernameFont (après le texte du nom)
     // → collé au nom, pas poussé par le flex natif Discord
