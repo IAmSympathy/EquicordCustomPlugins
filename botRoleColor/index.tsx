@@ -8,7 +8,7 @@ import { definePluginSettings } from "@api/Settings";
 import { Devs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByProps } from "@webpack";
-import { FluxDispatcher, GuildStore } from "@webpack/common";
+import { FluxDispatcher, GuildStore, SelectedGuildStore } from "@webpack/common";
 import backgroundImageB64 from "file://./assets/background.png?base64";
 import bannerB64 from "file://./assets/banner.png?base64";
 import bgFrostpostB64 from "file://./assets/BGs/Channels/Frostpost.jpg?base64";
@@ -51,6 +51,84 @@ let originalGetGuilds: any;
 
 // Cache des fonds de serveur enregistrés dynamiquement (guildId → url)
 let registeredGuildBanners: Record<string, string> = {};
+
+// Élément de style pour masquer les tags (bot / serveur) dans le serveur cible
+let hideTagsStyleElement: HTMLStyleElement | null = null;
+const HIDE_TAGS_BODY_CLASS = "notSoSeriousCord-in-target-guild";
+
+/** Met à jour la classe body selon si on est dans le serveur cible. */
+function updateHideTagsGuildClass() {
+    try {
+        const currentGuildId = SelectedGuildStore?.getGuildId?.() ?? null;
+        console.log("[botRoleColor] updateHideTagsGuildClass - current guild:", currentGuildId, "target:", HARDCODED_GUILD_ID);
+        if (currentGuildId === HARDCODED_GUILD_ID) {
+            document.body.classList.add(HIDE_TAGS_BODY_CLASS);
+            console.log("[botRoleColor] Added class:", HIDE_TAGS_BODY_CLASS);
+        } else {
+            document.body.classList.remove(HIDE_TAGS_BODY_CLASS);
+            console.log("[botRoleColor] Removed class:", HIDE_TAGS_BODY_CLASS);
+        }
+    } catch (e) {
+        console.error("[botRoleColor] Error in updateHideTagsGuildClass:", e);
+        document.body.classList.remove(HIDE_TAGS_BODY_CLASS);
+    }
+}
+
+function updateHideTagsStyle() {
+    const { hideBotTagInGuild, hideServerTagInGuild, hideBoostIconInGuild } = settings.store;
+    if (!hideBotTagInGuild && !hideServerTagInGuild && !hideBoostIconInGuild) {
+        hideTagsStyleElement?.remove();
+        hideTagsStyleElement = null;
+        return;
+    }
+    if (!hideTagsStyleElement) {
+        hideTagsStyleElement = document.createElement("style");
+        hideTagsStyleElement.id = "notSoSeriousCord-hide-tags";
+        document.head.appendChild(hideTagsStyleElement);
+    }
+    let css = "";
+    if (hideBotTagInGuild) {
+        // Masque le tag « APP » uniquement dans le serveur TNSSL
+        css += `
+/* Cache le tag APP (bot) dans le serveur TNSSL uniquement */
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] span[class*="botTag"],
+body.${HIDE_TAGS_BODY_CLASS} span[class*="nameContainer"] span[class*="botTag"],
+body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] span[class*="botTag"] {
+    display: none !important;
+}
+`;
+    }
+    if (hideServerTagInGuild) {
+        // Masque les tags de serveur uniquement dans le serveur TNSSL
+        css += `
+/* Cache le tag de serveur dans le serveur TNSSL uniquement */
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="clanTag"],
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="serverTag"],
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="memberNick"] ~ [class*="clanTag"],
+body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] [class*="clanTag"],
+body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] [class*="serverTag"] {
+    display: none !important;
+}
+`;
+    }
+    if (hideBoostIconInGuild) {
+        // Masque l'icône de booster (diamant rose) dans la liste des membres uniquement dans le serveur TNSSL
+        css += `
+/* Cache l'icône de booster dans la liste des membres dans le serveur TNSSL uniquement */
+body.${HIDE_TAGS_BODY_CLASS} svg[class*="premiumIcon"],
+body.${HIDE_TAGS_BODY_CLASS} [class*="nameAndDecorators"] span:has(svg[class*="premiumIcon"]) {
+    display: none !important;
+}
+`;
+    }
+    hideTagsStyleElement.textContent = css;
+}
+
+function removeHideTagsStyle() {
+    hideTagsStyleElement?.remove();
+    hideTagsStyleElement = null;
+    document.body.classList.remove(HIDE_TAGS_BODY_CLASS);
+}
 
 // roleId → données de couleur à injecter
 const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
@@ -172,7 +250,25 @@ const settings = definePluginSettings({
             resetAllBotColors();
             applyBotRoleColor();
         },
-    }
+    },
+    hideBotTagInGuild: {
+        type: OptionType.BOOLEAN,
+        description: "Masquer le tag « APP » (bot) à côté des noms d'utilisateur dans ce serveur",
+        default: true,
+        onChange: () => updateHideTagsStyle(),
+    },
+    hideServerTagInGuild: {
+        type: OptionType.BOOLEAN,
+        description: "Masquer le tag de serveur personnalisé à côté des noms d'utilisateur dans ce serveur",
+        default: true,
+        onChange: () => updateHideTagsStyle(),
+    },
+    hideBoostIconInGuild: {
+        type: OptionType.BOOLEAN,
+        description: "Masquer l'icône de booster (💎) dans la liste des membres de ce serveur",
+        default: true,
+        onChange: () => updateHideTagsStyle(),
+    },
 });
 
 // ── Bannières dynamiques (tous les serveurs avec bannière) ────────────────────
@@ -837,6 +933,12 @@ function applyNetricsaEffect() {
         const vc = container.parentElement;
         if (vc?.dataset.fsbVoiceContainer) { vc.dataset.fsbNetricsaVoice = "1"; vc.dataset.fsbCustomAnim = "1"; }
     });
+    // Mentions utilisateur et mentions de rôle avec couleur Netricsa
+    document.querySelectorAll<HTMLElement>('span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(mention => {
+        const c1 = mention.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) return;
+        mention.dataset.fsbNetricsa = "1"; mention.dataset.fsbCustomAnim = "1";
+    });
 }
 
 function cleanupNetricsaEffect() {
@@ -851,40 +953,128 @@ function cleanupNetricsaEffect() {
 }
 
 const NETRICSA_CSS = `
-    @keyframes fsb-netricsa-scan { 0% { background-position: 0px 50%; } 100% { background-position: 300px 50%; } }
+    @keyframes fsb-netricsa-scan {
+        0% { background-position: -350px 50%; }
+        100% { background-position: 350px 50%; }
+    }
+    @keyframes fsb-netricsa-pulse {
+        0%, 100% {
+            filter: drop-shadow(0 0 3px #2494db) drop-shadow(0 0 6px rgba(36, 148, 219, 0.4));
+        }
+        50% {
+            filter: drop-shadow(0 0 6px #2494db) drop-shadow(0 0 16px rgba(36, 148, 219, 0.6)) drop-shadow(0 0 24px rgba(255, 255, 255, 0.3));
+        }
+    }
     div[class*="member__"]:hover span[data-fsb-netricsa] span[class*="name__"],
     a:hover span[data-fsb-netricsa] span[class*="name__"],
     span[data-fsb-netricsa]:hover span[class*="name__"] {
-        animation: fsb-netricsa-scan 2s linear infinite !important;
-        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
-        background-size: 300px auto !important;
+        animation: fsb-netricsa-scan 3.5s linear infinite !important;
+        background-image: linear-gradient(to right,
+            var(--custom-gradient-color-1) 0%,
+            var(--custom-gradient-color-2) 47%,
+            var(--custom-gradient-color-2) 48.5%,
+            #ffffff 49%,
+            #ffffff 51%,
+            var(--custom-gradient-color-2) 51.5%,
+            var(--custom-gradient-color-2) 53%,
+            var(--custom-gradient-color-1) 100%) !important;
+        background-size: 350px auto !important;
     }
-    div[role="article"]:hover span[class*="username_"][data-fsb-netricsa],
-    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa] {
-        animation: fsb-netricsa-scan 2s linear infinite !important;
-        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
-        background-size: 300px auto !important;
+    div[role="article"]:hover span[class*="username_"][data-fsb-netricsa][data-fsb-custom-anim][data-fsb-gradient],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa][data-fsb-custom-anim][data-fsb-gradient],
+    h3[class*="header"]:hover span[class*="username_"][data-fsb-netricsa][data-fsb-custom-anim][data-fsb-gradient],
+    span[class*="username_"][data-fsb-netricsa][data-fsb-custom-anim][data-fsb-gradient]:hover,
+    span[class*="headerText"]:hover span[class*="username_"][data-fsb-netricsa][data-fsb-custom-anim][data-fsb-gradient] {
+        animation: fsb-netricsa-scan 3.5s linear infinite !important;
+        background-image: linear-gradient(to right,
+            var(--custom-gradient-color-1) 0%,
+            var(--custom-gradient-color-2) 47%,
+            var(--custom-gradient-color-2) 48.5%,
+            #ffffff 49%,
+            #ffffff 51%,
+            var(--custom-gradient-color-2) 51.5%,
+            var(--custom-gradient-color-2) 53%,
+            var(--custom-gradient-color-1) 100%) !important;
+        background-size: 350px auto !important;
     }
-    div[class*="member__"]:hover span[data-fsb-netricsa], a:hover span[data-fsb-netricsa], span[data-fsb-netricsa]:hover { filter: drop-shadow(0 0 3px #2494db) !important; }
+    div[class*="member__"]:hover span[data-fsb-netricsa],
+    a:hover span[data-fsb-netricsa],
+    span[data-fsb-netricsa]:hover {
+        animation: fsb-netricsa-pulse 3.5s ease-in-out infinite !important;
+    }
     div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header],
-    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] { filter: drop-shadow(0 0 3px #2494db) !important; }
-    div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"],
-    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"] { filter: none !important; }
-    div[role="article"]:hover span[class*="username_"][data-fsb-netricsa],
-    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa] { filter: none !important; }
-    div[class*="members_"]:hover div[data-fsb-netricsa] span[data-fsb-gradient] {
-        animation: fsb-netricsa-scan 2s linear infinite !important;
-        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
-        background-size: 300px auto !important;
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header],
+    h3[class*="header"]:hover span[class*="headerText"][data-fsb-netricsa-header] {
+        animation: fsb-netricsa-pulse 3.5s ease-in-out infinite !important;
     }
-    div[class*="members_"]:hover div[data-fsb-netricsa] { filter: drop-shadow(0 0 3px #2494db) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"],
+    h3[class*="header"]:hover span[class*="headerText"][data-fsb-netricsa-header] span[class*="botTag"] { filter: none !important; animation: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-netricsa],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-netricsa],
+    h3[class*="header"]:hover span[class*="username_"][data-fsb-netricsa] { filter: none !important; animation: fsb-netricsa-scan 3.5s linear infinite !important; }
+    div[class*="members_"]:hover div[data-fsb-netricsa] span[data-fsb-gradient] {
+        animation: fsb-netricsa-scan 3.5s linear infinite !important;
+        background-image: linear-gradient(to right,
+            var(--custom-gradient-color-1) 0%,
+            var(--custom-gradient-color-2) 47%,
+            var(--custom-gradient-color-2) 48.5%,
+            #ffffff 49%,
+            #ffffff 51%,
+            var(--custom-gradient-color-2) 51.5%,
+            var(--custom-gradient-color-2) 53%,
+            var(--custom-gradient-color-1) 100%) !important;
+        background-size: 350px auto !important;
+    }
+    div[class*="members_"]:hover div[data-fsb-netricsa] {
+        animation: fsb-netricsa-pulse 3.5s ease-in-out infinite !important;
+    }
     div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-mention-text],
     div[class*="voiceUser"]:hover div[data-fsb-netricsa] span[data-fsb-gradient]:not([data-fsb-mention]) {
-        animation: fsb-netricsa-scan 2s linear infinite !important;
-        background-image: linear-gradient(to right, #2494db 0%, #247d90 49%, #ffffff 49%, #ffffff 51%, #247d90 51%, #2494db 100%) !important;
-        background-size: 300px auto !important;
+        animation: fsb-netricsa-scan 3.5s linear infinite !important;
+        background-image: linear-gradient(to right,
+            var(--custom-gradient-color-1) 0%,
+            var(--custom-gradient-color-2) 47%,
+            var(--custom-gradient-color-2) 48.5%,
+            #ffffff 49%,
+            #ffffff 51%,
+            var(--custom-gradient-color-2) 51.5%,
+            var(--custom-gradient-color-2) 53%,
+            var(--custom-gradient-color-1) 100%) !important;
+        background-size: 350px auto !important;
     }
-    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-netricsa-voice] { filter: drop-shadow(0 0 3px #2494db) !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-netricsa-voice] {
+        animation: fsb-netricsa-pulse 3.5s ease-in-out infinite !important;
+    }
+    /* Mentions utilisateur et mentions de rôle avec Netricsa */
+    /* Animation au hover du MESSAGE (via data-fsb-hover-anim posé par JS) */
+    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] span[data-fsb-mention-text] {
+        animation: fsb-netricsa-scan 3.5s linear infinite !important;
+        background-image: linear-gradient(to right,
+            var(--custom-gradient-color-1) 0%,
+            var(--custom-gradient-color-2) 47%,
+            var(--custom-gradient-color-2) 48.5%,
+            #ffffff 49%,
+            #ffffff 51%,
+            var(--custom-gradient-color-2) 51.5%,
+            var(--custom-gradient-color-2) 53%,
+            var(--custom-gradient-color-1) 100%) !important;
+        background-size: 350px auto !important;
+        filter: drop-shadow(0 0 3px #2494db) drop-shadow(0 0 6px rgba(36, 148, 219, 0.4));
+    }
+    /* Icônes de rôle uniquement (pas les avatars utilisateur) */
+    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] img.vc-mentionAvatars-role-icon {
+        animation: fsb-netricsa-pulse 3.5s ease-in-out infinite !important;
+    }
+    /* Glow via le conteneur parent pour mentions utilisateur */
+    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 4px #2494db) drop-shadow(0 0 8px rgba(36, 148, 219, 0.4)) !important;
+    }
+    /* Glow direct pour mentions de rôle sans conteneur */
+    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim]:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 4px #2494db) drop-shadow(0 0 8px rgba(36, 148, 219, 0.4)) !important;
+    }
 `;
 
 // ── 🏆 GOLDEN / 🥈 SILVER / 🥉 BRONZE ───────────────────────────────────────
@@ -1294,9 +1484,11 @@ export default definePlugin({
         registerHardcodedRoleColors(HARDCODED_ROLE_COLORS);
         registerHardcodedChannelBgs(CHANNEL_BGS);
         registerHardcodedGuildBgs(GUILD_BGS);
+        updateHideTagsStyle();
+        updateHideTagsGuildClass();
 
         // Mettre à jour le fond global quand on change de guild
-        (this as any)._guildSelectListener = () => { updateAppBg(); registerAllGuildBanners(); };
+        (this as any)._guildSelectListener = () => { registerAllGuildBanners(); updateHideTagsGuildClass(); };
         FluxDispatcher.subscribe("GUILD_SELECT", (this as any)._guildSelectListener);
         FluxDispatcher.subscribe("CHANNEL_SELECT", (this as any)._guildSelectListener);
 
@@ -1358,14 +1550,21 @@ export default definePlugin({
             for (const mutation of mutations) {
                 if (mutation.type !== "childList") continue;
 
-                // Ignorer nos propres injections (overlays, éléments colorés, position/zIndex)
+                // Ignorer nos propres injections (overlays, éléments colorés)
+                // Exceptions : icônes de rôle dans le serveur cible (besoin de re-scan pour les styles de masquage)
                 const allNodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
                 const isOurMutation = allNodes.every(n => {
                     if (n.nodeType !== Node.ELEMENT_NODE) return true;
                     const el = n as HTMLElement;
-                    return el.dataset.vcColored !== undefined
-                        || el.dataset.fsbRoleIcon !== undefined
-                        || el.dataset.fsbBdayStar !== undefined;
+                    // Toujours ignorer les éléments colorés et les étoiles d'anniversaire
+                    if (el.dataset.vcColored !== undefined || el.dataset.fsbBdayStar !== undefined) return true;
+                    // Pour les icônes de rôle : ignorer seulement si on n'est PAS dans le serveur cible
+                    if (el.dataset.fsbRoleIcon !== undefined) {
+                        const currentGuildId = SelectedGuildStore?.getGuildId?.() ?? null;
+                        // Si on est dans le serveur cible, ne pas ignorer (pour déclencher le re-scan)
+                        return currentGuildId !== HARDCODED_GUILD_ID;
+                    }
+                    return false;
                 });
                 if (isOurMutation) continue;
 
@@ -1421,6 +1620,7 @@ export default definePlugin({
         (this as any).observer?.disconnect();
         resetAllBotColors();
         removeHardcodedBanner();
+        removeHideTagsStyle();
 
         // Désabonner les listeners de changement de guild
         if ((this as any)._guildSelectListener) {

@@ -15,7 +15,7 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { Devs } from "@utils/constants";
 import definePlugin from "@utils/types";
 import { findComponentByCodeLazy } from "@webpack";
-import { FluxDispatcher, GuildMemberStore, GuildRoleStore, GuildStore } from "@webpack/common";
+import { FluxDispatcher, GuildMemberStore, GuildRoleStore, GuildStore, SelectedGuildStore } from "@webpack/common";
 
 const RoleIcon = findComponentByCodeLazy("#{intl::ROLE_ICON_ALT_TEXT}");
 
@@ -221,6 +221,11 @@ function ensureGradientStyle() {
     gradientStyleEl = document.createElement("style");
     gradientStyleEl.id = "fakeServerBoost-gradient-names";
     gradientStyleEl.textContent = `
+        @keyframes fsb-gradient-scroll {
+            0%   { background-position: 0px   50%; }
+            100% { background-position: 200px 50%; }
+        }
+
         /* ── Gradient : nameContainer ── */
         span[data-fsb-gradient] span[class*="name__"] {
             background-image: linear-gradient(to right,
@@ -236,7 +241,9 @@ function ensureGradientStyle() {
         }
 
         /* ── Gradient : headers de messages (span.username_) ── */
-        span[class*="username_"][data-fsb-gradient]:not(:has(img)):not(:has(svg)) {
+        /* :has(img:not(.emoji):not([class*="emoji"])) exclut uniquement les vraies images (avatars, roleIcons),
+           pas les emojis qui doivent eux aussi recevoir le gradient via mask-image */
+        span[class*="username_"][data-fsb-gradient]:not(:has(img:not(.emoji):not([class*="emoji"]))):not(:has(svg)) {
             background-image: linear-gradient(to right,
                 var(--custom-gradient-color-1),
                 var(--custom-gradient-color-2),
@@ -253,6 +260,35 @@ function ensureGradientStyle() {
             vertical-align: middle !important;
             margin-left: 3px !important;
         }
+
+        /* ── Icônes de rôle colorées via filter inline posé par JS ── */
+        img[data-fsb-role-icon-wrapped] {
+            /* Pas de transition : le filter est mis à jour frame par frame par JS */
+        }
+
+        /* Emojis Unicode dans les noms (span[class*="emoji_"]) — texte rendu dans un span */
+        [data-fsb-gradient] span[class*="name__"] span[class*="emoji"],
+        [data-fsb-gradient] span[class*="name__"] span[class^="emoji"],
+        span[class*="username_"][data-fsb-gradient] span[class*="emoji"],
+        span[class*="username_"][data-fsb-gradient] span[class^="emoji"] {
+            background-image: linear-gradient(to right,
+                var(--custom-gradient-color-1),
+                var(--custom-gradient-color-2),
+                var(--custom-gradient-color-1)
+            ) !important;
+            -webkit-background-clip: text !important;
+            background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+            background-size: 200px auto !important;
+        }
+
+        /* ── Animation hover synchronisée ── */
+        /* L'animation est déclenchée par JS via animation-delay négatif calculé
+           depuis performance.now() pour synchroniser texte, emojis et icône de rôle. */
+        @keyframes fsb-gradient-scroll {
+            0%   { background-position: 0px   50%; }
+            100% { background-position: 200px 50%; }
+        }
         /* Animation + glow au hover de toute la plaque voice (voiceUser__) */
         div[data-fsb-voice-container] {
             transition: filter 0.15s ease;
@@ -261,55 +297,67 @@ function ensureGradientStyle() {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
         div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) {
-            filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
-        }
-
-        /* ── Animation hover ── */
-        @keyframes fsb-gradient-scroll {
-            0%   { background-position: 0px   50%; }
-            100% { background-position: 200px 50%; }
-        }
-
-        /* nameContainer : <a> direct, plaque membre entière (member__), article message */
-        a:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
-        span[data-fsb-gradient]:not([data-fsb-custom-anim]):hover span[class*="name__"],
-        div[class*="member__"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
-        li[class*="messageListItem"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
-        div[role="article"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"] {
-            animation: fsb-gradient-scroll 1.5s linear infinite !important;
-        }
-
-        /* username_ header de message : animation au hover du message */
-        div[role="article"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]),
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]) {
-            animation: fsb-gradient-scroll 1.5s linear infinite !important;
-        }
-
-        /* ── Glow hover : nameContainer ── */
-        span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"] { transition: filter 0.15s ease; }
-        a:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
-        span[data-fsb-gradient]:not([data-fsb-custom-anim]):hover span[class*="name__"],
-        div[class*="member__"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
-        li[class*="messageListItem"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"],
-        div[role="article"]:hover span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"] {
-            filter: drop-shadow(0 0 2px var(--custom-gradient-color-1)) !important;
-        }
-
-        /* ── Glow header de message : sur headerText pour inclure l'icône de rôle,
-           mais annulé sur botTagCozy_ pour exclure le badge APP ── */
-        span[class*="headerText"][data-fsb-header-vars] { transition: filter 0.15s ease; overflow: visible !important; }
-        div[role="article"]:hover span[class*="headerText"][data-fsb-header-vars]:not([data-fsb-custom-anim]),
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars]:not([data-fsb-custom-anim]) {
             filter: drop-shadow(0 0 3px var(--custom-gradient-color-1));
         }
-        /* Quand on hover sur le username_ directement, ne pas doubler le glow avec celui du headerText */
-        div[role="article"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]),
-        li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-gradient]:not([data-fsb-custom-anim]) {
+
+        /* ── Animation hover : les animations CSS individuelles sont REMPLACÉES par JS.
+           Le JS applique animation-delay négatif synchronisé (depuis performance.now())
+           sur tous les éléments du groupe (texte, emojis, icône) simultanément.
+           Les classes [data-fsb-hover-anim] sont posées/retirées par JS. ── */
+
+        /* nameContainer : animation pilotée par JS (data-fsb-hover-anim) */
+        span[data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) span[class*="name__"] {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        }
+        /* username_ header de message */
+        span[class*="username_"][data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        }
+        /* emojis dans le nom */
+        span[data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) span[class*="name__"] span[class*="emoji"],
+        span[class*="username_"][data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) span[class*="emoji"] {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        }
+
+        /* ── Glow hover : nameContainer (liste membres + messages système) ── */
+        /* Transition pour les éléments qui peuvent recevoir data-fsb-hover-anim */
+        span[data-fsb-gradient]:not([data-fsb-custom-anim]) span[class*="name__"] {
+            transition: filter 0.15s ease;
+        }
+
+        /* Animation pilotée par JS via data-fsb-hover-anim */
+        span[data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) span[class*="name__"] {
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
+        }
+
+        /* Animation pour icônes de la liste des membres au hover */
+        div[class*="member__"]:hover img[data-fsb-member-role-icon],
+        span[data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) img[data-fsb-member-role-icon] {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+            opacity: 1 !important;
+        }
+
+        /* Glow via drop-shadow sur le parent commun qui contient nameContainer (pour le texte) */
+        /* Cibler div.name__ comme parent commun car l'icône peut être dans username__ ou à côté */
+        /* Support hover CSS pur OU hover JS via data-fsb-hover-anim */
+        div[class*="member__"]:hover div[class*="name__"]:has(span[data-fsb-gradient]),
+        div[class*="member__"]:hover span[class*="username__"]:has(span[data-fsb-gradient]),
+        div[class*="name__"]:has(span[data-fsb-gradient][data-fsb-hover-anim]),
+        span[class*="username__"]:has(span[data-fsb-gradient][data-fsb-hover-anim]) {
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
+        }
+
+        /* ── Glow header de message ── */
+        span[class*="headerText"][data-fsb-header-vars] { transition: filter 0.15s ease; overflow: visible !important; }
+        span[class*="headerText"][data-fsb-header-vars][data-fsb-hover-anim]:not([data-fsb-custom-anim]) {
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1));
+        }
+        /* Ne pas doubler le glow sur username_ */
+        span[class*="username_"][data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) {
             filter: none !important;
         }
         /* Annuler le filter sur le badge APP */
-        div[role="article"]:hover span[class*="headerText"][data-fsb-header-vars] span[class*="botTag"],
-        li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-header-vars] span[class*="botTag"] {
+        span[class*="headerText"][data-fsb-header-vars][data-fsb-hover-anim] span[class*="botTag"] {
             filter: none !important;
         }
         /* Ouvrir overflow sur les ancêtres du headerText pour ne pas clipper le glow */
@@ -333,33 +381,46 @@ function ensureGradientStyle() {
             background-size: 200px auto !important;
             transition: filter 0.15s ease;
         }
-        :is(span, strong, div)[data-fsb-gradient]:not([data-fsb-custom-anim]):not(span[class*="username_"]):not([class*="nameContainer"]):not(:has(span[class*="name__"])):not(:has(img)):not(:has(svg)):not([data-fsb-voice-checked] *):not([data-fsb-voice-checked]):not([data-fsb-cat-checked] *):hover,
-        div[class*="member__"]:hover :is(span, strong, div)[data-fsb-gradient]:not([data-fsb-custom-anim]):not(span[class*="username_"]):not([class*="nameContainer"]):not(:has(img)):not(:has(svg)):not([data-fsb-voice-checked] *):not([data-fsb-voice-checked]):not([data-fsb-cat-checked] *) {
+        :is(span, strong, div)[data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]):not(span[class*="username_"]):not([class*="nameContainer"]):not(:has(span[class*="name__"])):not(:has(img)):not(:has(svg)) {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
-            filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1));
         }
 
         /* ── Catégories de la liste des membres ── */
+        /* S'assurer que le header capture les événements de souris sur toute sa zone */
+        div[class*="membersGroupHeader"][data-fsb-cat-checked] {
+            display: block !important;
+            min-height: 20px !important;
+            cursor: default !important;
+            pointer-events: auto !important;
+        }
+        /* Animation au hover sur toute la liste des membres (conteneur parent) */
+        /* Toutes les catégories s'animent en même temps = synchronisation automatique */
         div[class*="members_"]:hover div[data-fsb-cat-checked]:not([data-fsb-custom-anim]) span[data-fsb-gradient] {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
+        /* Animation des icônes au hover de la liste */
+        div[class*="members_"]:hover div[data-fsb-cat-checked]:not([data-fsb-custom-anim]) img[data-fsb-role-icon-wrapped] {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+        }
+        /* Glow sur toutes les catégories au hover de la liste */
         div[class*="members_"]:hover div[data-fsb-cat-checked]:not([data-fsb-custom-anim]) {
-            filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
         }
 
         /* ── Voice générique (non-custom) ── */
-        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) div[data-fsb-gradient]:not([data-fsb-mention]) {
+        div[data-fsb-voice-container][data-fsb-hover-anim]:not([data-fsb-custom-anim]) div[data-fsb-gradient]:not([data-fsb-mention]) {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
-        /* Voice avec icône de rôle (data-fsb-mention) : animer le span texte uniquement */
-        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) div[data-fsb-mention] span[data-fsb-mention-text] {
+        div[data-fsb-voice-container][data-fsb-hover-anim]:not([data-fsb-custom-anim]) div[data-fsb-mention] span[data-fsb-mention-text] {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
         }
-        div[class*="voiceUser"]:hover div[data-fsb-voice-container]:not([data-fsb-custom-anim]) {
-            filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
+        div[data-fsb-voice-container][data-fsb-hover-anim]:not([data-fsb-custom-anim]) {
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1));
         }
+        div[data-fsb-voice-container] { transition: filter 0.15s ease; }
 
-        /* ── Gradient mentions (texte wrappé dans span[data-fsb-mention-text]) ── */
+        /* ── Gradient mentions ── */
         span[data-fsb-mention-text] {
             background-image: linear-gradient(to right,
                 var(--custom-gradient-color-1),
@@ -370,17 +431,31 @@ function ensureGradientStyle() {
             background-clip: text !important;
             -webkit-text-fill-color: transparent !important;
             background-size: 200px auto !important;
-        }
-        /* Hover : animation du texte */
-        span[data-fsb-mention]:hover span[data-fsb-mention-text] {
-            animation: fsb-gradient-scroll 1.5s linear infinite !important;
-        }
-        /* Glow sur le span racine entier (inclut l'icône) */
-        span[data-fsb-mention] {
             transition: filter 0.15s ease;
         }
-        span[data-fsb-mention]:hover {
-            filter: drop-shadow(0 0 2px var(--custom-gradient-color-1));
+        /* Animation du texte au hover */
+        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) span[data-fsb-mention-text] {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
+        }
+        /* Animation des icônes de rôle (injectées et natives) au hover */
+        span[data-fsb-mention]:not([data-fsb-custom-anim]) img[data-fsb-role-icon-wrapped],
+        span[data-fsb-mention]:not([data-fsb-custom-anim]) img.vc-mentionAvatars-role-icon {
+            transition: opacity 0.15s ease;
+        }
+        /* Glow sur le conteneur parent pour éviter de perturber le filtre de l'icône */
+        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) img[data-fsb-role-icon-wrapped],
+        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) img.vc-mentionAvatars-role-icon {
+            animation: fsb-gradient-scroll 1.5s linear infinite !important;
+            opacity: 1 !important;
+        }
+        /* Appliquer le glow via le conteneur parent (vc-mentionAvatars-container) pour mentions utilisateur */
+        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) .vc-mentionAvatars-container {
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
+        }
+        /* Pour les mentions de rôle qui n'ont pas de conteneur, appliquer directement sur la mention */
+        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]):not(:has(.vc-mentionAvatars-container)) {
+            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
         }
 
         /* ══════════════════════════════════════════════
@@ -474,8 +549,9 @@ function applyGradientToContainer(nameContainer: HTMLElement, g: GradientInfo) {
 
 /** Applique le gradient directement sur un span "username" de header de message (span.username_c19a55) */
 function applyGradientToUsernameSpan(el: HTMLElement, g: GradientInfo) {
-    // Ne pas affecter les spans qui contiennent des icônes (img/svg)
-    if (el.querySelector("img, svg")) return;
+    // Ne pas affecter les spans qui contiennent de vraies icônes (img qui ne sont pas des emojis, ou svg)
+    // Les emojis (img.emoji / img[class*="emoji"]) sont autorisés : ils recevront le gradient via mask-image CSS
+    if (el.querySelector("img:not(.emoji):not([class*='emoji']), svg")) return;
     el.style.setProperty("--custom-gradient-color-1", g.primary);
     el.style.setProperty("--custom-gradient-color-2", g.secondary);
     el.style.setProperty("--custom-gradient-color-3", g.tertiary);
@@ -484,13 +560,15 @@ function applyGradientToUsernameSpan(el: HTMLElement, g: GradientInfo) {
     const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
     if (headerText && !headerText.dataset.fsbHeaderVars) {
         headerText.style.setProperty("--custom-gradient-color-1", g.primary);
+        headerText.style.setProperty("--custom-gradient-color-2", g.secondary);
+        headerText.style.setProperty("--custom-gradient-color-3", g.tertiary);
         headerText.dataset.fsbHeaderVars = "1";
     }
 }
 
 /** Marque data-fsb-gradient sur un span username_ qui a déjà ses CSS vars posées nativement par Discord */
 function markUsernameGradientFromVars(el: HTMLElement) {
-    if (el.querySelector("img, svg")) return;
+    if (el.querySelector("img:not(.emoji):not([class*='emoji']), svg")) return;
     if (el.dataset.fsbGradient) return;
     const p = el.style.getPropertyValue("--custom-gradient-color-1");
     const s = el.style.getPropertyValue("--custom-gradient-color-2");
@@ -499,6 +577,9 @@ function markUsernameGradientFromVars(el: HTMLElement) {
     const headerText = el.closest<HTMLElement>('span[class*="headerText"]');
     if (headerText && !headerText.dataset.fsbHeaderVars) {
         headerText.style.setProperty("--custom-gradient-color-1", p);
+        headerText.style.setProperty("--custom-gradient-color-2", s);
+        const t = el.style.getPropertyValue("--custom-gradient-color-3");
+        if (t) headerText.style.setProperty("--custom-gradient-color-3", t);
         headerText.dataset.fsbHeaderVars = "1";
     }
 }
@@ -600,6 +681,14 @@ export function applyRoleIcons() {
         }
     });
 
+    // 0c. Icônes de rôle dans la liste des membres (plaques utilisateur)
+    document.querySelectorAll<HTMLElement>(
+        'div[class*="member__"]:not([data-fsb-member-icon-checked])'
+    ).forEach(memberEl => {
+        memberEl.dataset.fsbMemberIconChecked = "1";
+        injectMemberListRoleIcon(memberEl);
+    });
+
 }
 
 /** Déplace le span contenant l'icône de rôle avant le span du clan tag dans les headers de messages */
@@ -631,14 +720,304 @@ function reorderRoleIconBeforeClanTag() {
     });
 }
 
+/**
+ * Résout les CSS vars de gradient (c1, c2, c3) pour une img roleIcon.
+ * Stratégie :
+ *  1. username_ sibling dans le même headerText (a toujours c1+c2+c3)
+ *  2. headerText lui-même (peut n'avoir que c1 pour les rôles custom-anim)
+ *  3. parent gradienté le plus proche (pour les icônes injectées par notre code)
+ * Si seulement c1 est disponible, c2/c3 = c1 (couleur uniforme).
+ */
+function resolveGradientVarsForIcon(img: HTMLElement): { c1: string; c2: string; c3: string; customAnim: boolean; } | null {
+    const headerText = img.closest<HTMLElement>("span[class*=\"headerText\"]");
+
+    // Priorité 1 : username_ sibling dans le même headerText
+    if (headerText) {
+        const usernameEl = headerText.querySelector<HTMLElement>("span[class*=\"username_\"]");
+        if (usernameEl) {
+            const c1 = usernameEl.style.getPropertyValue("--custom-gradient-color-1");
+            const c2 = usernameEl.style.getPropertyValue("--custom-gradient-color-2");
+            if (c1) {
+                const c3 = usernameEl.style.getPropertyValue("--custom-gradient-color-3") || c2 || c1;
+                return { c1, c2: c2 || c1, c3, customAnim: !!usernameEl.dataset.fsbCustomAnim };
+            }
+        }
+        // Priorité 2 : headerText lui-même
+        const c1 = headerText.style.getPropertyValue("--custom-gradient-color-1");
+        if (c1) {
+            const c2 = headerText.style.getPropertyValue("--custom-gradient-color-2");
+            const c3 = headerText.style.getPropertyValue("--custom-gradient-color-3");
+            return { c1, c2: c2 || c1, c3: c3 || c2 || c1, customAnim: !!headerText.dataset.fsbCustomAnim };
+        }
+    }
+
+    // Priorité 3 : parent gradienté le plus proche (icônes injectées : catégories, voice)
+    const gradParent = img.closest<HTMLElement>("[data-fsb-gradient], [data-fsb-cat-checked]");
+    if (gradParent) {
+        const c1 = gradParent.style.getPropertyValue("--custom-gradient-color-1");
+        if (c1) {
+            const c2 = gradParent.style.getPropertyValue("--custom-gradient-color-2");
+            const c3 = gradParent.style.getPropertyValue("--custom-gradient-color-3");
+            return { c1, c2: c2 || c1, c3: c3 || c2 || c1, customAnim: !!gradParent.dataset.fsbCustomAnim };
+        }
+    }
+
+    // Priorité 4 : nameContainer sibling (liste des membres — icône à côté du nameContainer)
+    // Structure : span.username__ > [span.nameContainer[data-fsb-gradient], img[data-fsb-role-icon]]
+    const usernameSpan = img.parentElement;
+    if (usernameSpan?.matches?.('span[class*="username__"]')) {
+        const nameContainer = usernameSpan.querySelector<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]');
+        if (nameContainer) {
+            const c1 = nameContainer.style.getPropertyValue("--custom-gradient-color-1");
+            const c2 = nameContainer.style.getPropertyValue("--custom-gradient-color-2");
+            if (c1 && c2) {
+                const c3 = nameContainer.style.getPropertyValue("--custom-gradient-color-3");
+                return { c1, c2, c3: c3 || c2, customAnim: !!nameContainer.dataset.fsbCustomAnim };
+            }
+        }
+    }
+
+    return null;
+}
+
+/** Convertit une couleur hex (#rrggbb) en composantes RGB entières */
+function hexToRgb(hex: string): [number, number, number] | null {
+    const m = /^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!m) return null;
+    return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+
+// ── Filtre CSS pour colorer une icône ────────────────────────────────────────
+// Technique : brightness(0) → tout noir, invert(1) → tout blanc,
+// sepia(1) → sépia uniforme (#e6c68a sur fond blanc), puis hue-rotate + saturate + brightness
+// pour atteindre la teinte/saturation/luminosité cible.
+// Cette chaîne s'applique uniformément à TOUS les pixels quelle que soit leur valeur originale.
+
+const iconFilterResultCache = new Map<string, string>(); // hex → filter url id
+let svgFilterContainer: SVGSVGElement | null = null;
+
+function ensureSvgFilterContainer() {
+    if (svgFilterContainer?.isConnected) return;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("id", "fsb-icon-svg-filters");
+    svg.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
+    svg.setAttribute("aria-hidden", "true");
+    document.body.appendChild(svg);
+    svgFilterContainer = svg;
+}
+
+/**
+ * Colorie une icône de rôle avec la couleur hex donnée via un filtre SVG feColorMatrix.
+ * Injecte un <filter> SVG dans le DOM et retourne filter:url(#id).
+ *
+ * feColorMatrix avec type="matrix" remplace chaque pixel (r,g,b,a) par :
+ *   R_out = tr * a   (canal rouge de la cible × alpha original)
+ *   G_out = tg * a
+ *   B_out = tb * a
+ *   A_out = a
+ * Ce qui colorie uniformément l'image en préservant la transparence.
+ */
+function makeIconFilter(hex: string): string {
+    if (iconFilterResultCache.has(hex)) return iconFilterResultCache.get(hex)!;
+    const rgb = hexToRgb(hex);
+    if (!rgb) return "none";
+
+    ensureSvgFilterContainer();
+
+    const id = `fsb-ic-${hex.replace("#", "")}`;
+    // Vérifier si ce filtre existe déjà dans le SVG
+    if (!svgFilterContainer!.getElementById(id)) {
+        const [r, g, b] = rgb;
+        // Normaliser en [0..1]
+        const rn = (r / 255).toFixed(4);
+        const gn = (g / 255).toFixed(4);
+        const bn = (b / 255).toFixed(4);
+
+        // feColorMatrix matrix 4×5 :
+        // [R_out]   [0  0  0  rn 0] [R_in]
+        // [G_out] = [0  0  0  gn 0] [G_in]
+        // [B_out]   [0  0  0  bn 0] [B_in]
+        // [A_out]   [0  0  0  1  0] [A_in]
+        // → chaque pixel reçoit (rn, gn, bn) × son alpha original
+        // Ça préserve la transparence et colorie tous les pixels opaques uniformément.
+        const matrix = `0 0 0 ${rn} 0  0 0 0 ${gn} 0  0 0 0 ${bn} 0  0 0 0 1 0`;
+
+        const filter = document.createElementNS("http://www.w3.org/2000/svg", "filter");
+        filter.setAttribute("id", id);
+        filter.setAttribute("color-interpolation-filters", "sRGB");
+
+        const fe = document.createElementNS("http://www.w3.org/2000/svg", "feColorMatrix");
+        fe.setAttribute("type", "matrix");
+        fe.setAttribute("values", matrix);
+        filter.appendChild(fe);
+        svgFilterContainer!.appendChild(filter);
+    }
+
+    const result = `url(#${id})`;
+    iconFilterResultCache.set(hex, result);
+    return result;
+}
+
+// ── Système d'animation hover global et synchronisé (texte uniquement) ───────
+
+const ANIM_DURATION = 1500; // ms
+
+/** Calcule l'animation-delay négatif pour démarrer en phase avec le timer global */
+function syncDelay(): string {
+    return `-${(performance.now() % ANIM_DURATION).toFixed(0)}ms`;
+}
+
+type HoverGroup = {
+    textEls: HTMLElement[];
+    markerEls: HTMLElement[];
+};
+
+const activeHoverGroups = new Map<HTMLElement, HoverGroup>();
+
+function startGlobalHover(root: HTMLElement, group: HoverGroup) {
+    activeHoverGroups.set(root, group);
+    const delay = syncDelay();
+    for (const el of group.textEls) {
+        el.dataset.fsbHoverAnim = "1";
+        el.style.animationDelay = delay;
+    }
+    for (const el of group.markerEls) {
+        el.dataset.fsbHoverAnim = "1";
+    }
+}
+
+function stopGlobalHover(root: HTMLElement) {
+    const group = activeHoverGroups.get(root);
+    if (!group) return;
+    activeHoverGroups.delete(root);
+    for (const el of group.textEls) {
+        delete el.dataset.fsbHoverAnim;
+        el.style.animationDelay = "";
+    }
+    for (const el of group.markerEls) {
+        delete el.dataset.fsbHoverAnim;
+    }
+}
+
+function buildHoverGroup(root: HTMLElement): HoverGroup {
+    const textEls: HTMLElement[] = [];
+    const markerEls: HTMLElement[] = [];
+
+    root.querySelectorAll<HTMLElement>(
+        "span[data-fsb-gradient]:not([data-fsb-custom-anim])"
+    ).forEach(el => {
+        textEls.push(el);
+        el.querySelectorAll<HTMLElement>("span[class*=\"emoji\"]").forEach(e => textEls.push(e));
+        el.querySelectorAll<HTMLElement>("span[class*=\"name__\"]").forEach(e => textEls.push(e));
+        // Ajouter les icônes de rôle dans la liste des membres
+        el.querySelectorAll<HTMLElement>("img[data-fsb-role-icon-wrapped], img[data-fsb-member-role-icon]").forEach(icon => textEls.push(icon));
+    });
+
+    const headerText = root.querySelector<HTMLElement>("span[class*=\"headerText\"][data-fsb-header-vars]:not([data-fsb-custom-anim])");
+    if (headerText) markerEls.push(headerText);
+
+    const voiceCont = root.querySelector<HTMLElement>("[data-fsb-voice-container]:not([data-fsb-custom-anim])");
+    if (voiceCont) markerEls.push(voiceCont);
+
+    // Chercher data-fsb-cat-checked : soit dans le root, soit le root lui-même
+    let catChecked = root.querySelector<HTMLElement>("[data-fsb-cat-checked]:not([data-fsb-custom-anim])");
+    if (!catChecked && root.dataset.fsbCatChecked && !root.dataset.fsbCustomAnim) {
+        catChecked = root;
+    }
+    if (catChecked) {
+        markerEls.push(catChecked);
+        // Ajouter l'icône de rôle de la catégorie aux éléments à animer
+        const catIcon = catChecked.querySelector<HTMLElement>("img[data-fsb-role-icon-wrapped]");
+        if (catIcon) textEls.push(catIcon);
+    }
+
+    // Mentions : animer le texte et l'icône au hover du message
+    // Inclure les mentions normales ET les mentions avec animations custom
+    const mentions = root.querySelectorAll<HTMLElement>("[data-fsb-mention]");
+    mentions.forEach(mention => {
+        markerEls.push(mention);
+        mention.querySelectorAll<HTMLElement>("[data-fsb-mention-text]").forEach(e => textEls.push(e));
+        // Récupérer uniquement les icônes de rôle (injectées ou natives), PAS les avatars utilisateur
+        mention.querySelectorAll<HTMLElement>("img[data-fsb-role-icon-wrapped], img.vc-mentionAvatars-role-icon").forEach(icon => textEls.push(icon));
+    });
+
+    return { textEls, markerEls };
+}
+
+export function bindHoverGroup(root: HTMLElement) {
+    if (root.dataset.fsbHoverBound) return;
+    root.dataset.fsbHoverBound = "1";
+
+    root.addEventListener("mouseenter", () => {
+        const group = buildHoverGroup(root);
+        if (group.textEls.length === 0 && group.markerEls.length === 0) return;
+        startGlobalHover(root, group);
+    });
+    root.addEventListener("mouseleave", () => {
+        stopGlobalHover(root);
+    });
+}
+
+/**
+ * Applique un filter CSS statique sur une img roleIcon.
+ * Utilise la couleur principale (c1) pour être cohérent avec le nom du rôle.
+ */
+function applyFilterToRoleIcon(img: HTMLElement, vars: { c1: string; c2: string; c3: string; customAnim: boolean; }) {
+    const color = vars.c1 || vars.c2;
+    if (!hexToRgb(color)) return;
+
+    img.style.setProperty("filter", makeIconFilter(color), "important");
+    img.dataset.fsbRoleIconWrapped = "1";
+    img.dataset.fsbIconC1 = vars.c1;
+    img.dataset.fsbIconC2 = vars.c2;
+    img.dataset.fsbIconC3 = vars.c3;
+    if (vars.customAnim) img.dataset.fsbCustomAnim = "1";
+}
+
+/**
+ * Applique un filter coloré sur toutes les img roleIcon qui ont des CSS vars de gradient.
+ * Exportée pour que botRoleColor puisse l'appeler après avoir posé ses CSS vars.
+ */
+export function wrapRoleIconsWithGradient() {
+    // Cas 1 : roleIcons natifs Discord dans un headerText avec gradient
+    document.querySelectorAll<HTMLElement>(
+        "span[class*=\"headerText\"] img[class*=\"roleIcon\"]:not([data-fsb-role-icon-wrapped])"
+    ).forEach(img => {
+        const vars = resolveGradientVarsForIcon(img);
+        if (!vars) return;
+        applyFilterToRoleIcon(img, vars);
+    });
+
+    // Cas 2 : icônes injectées par notre code (catégories membres, voice)
+    document.querySelectorAll<HTMLElement>(
+        "img[data-fsb-role-icon]:not([data-fsb-role-icon-wrapped])"
+    ).forEach(img => {
+        const vars = resolveGradientVarsForIcon(img);
+        if (!vars) return;
+        applyFilterToRoleIcon(img, vars);
+    });
+
+    // Cas 3 : icônes natives des mentions de rôle (pas les avatars utilisateur)
+    document.querySelectorAll<HTMLElement>(
+        "span[data-fsb-mention] img.vc-mentionAvatars-role-icon:not([data-fsb-role-icon-wrapped])"
+    ).forEach(img => {
+        const vars = resolveGradientVarsForIcon(img);
+        if (!vars) return;
+        applyFilterToRoleIcon(img, vars);
+    });
+}
 
 export function applyGradientToNames() {
     // Toujours injecter les icônes, indépendamment des gradients
     applyRoleIcons();
     reorderRoleIconBeforeClanTag();
 
-    if (rgbToGradient.size === 0) return;
+    // Injecter le CSS et wrapper les roleIcons même si rgbToGradient est vide
+    // (les rôles custom-anim comme Silver ont leurs CSS vars posées par botRoleColor)
     ensureGradientStyle();
+    wrapRoleIconsWithGradient();
+
+    if (rgbToGradient.size === 0) return;
 
     // 1. nameContainer — fusionné : color inline OU CSS vars déjà posées
     document.querySelectorAll<HTMLElement>(
@@ -745,11 +1124,30 @@ export function applyGradientToNames() {
 
     // 6. Effets spéciaux enregistrés par les plugins dépendants (Birthday, Netricsa, Klodovik…)
     for (const effect of registeredEffects.values()) {
-        // Optimisation : si l'effet déclare une couleur primaire et qu'aucun élément
-        // gradienté avec cette couleur n'est présent dans le DOM, on saute l'appel.
         if (effect.primaryRGB && !rgbToGradient.has(effect.primaryRGB)) continue;
         effect.applyFn();
     }
+
+    // Re-wrapper après les effets custom (qui peuvent avoir posé de nouvelles CSS vars)
+    wrapRoleIconsWithGradient();
+
+    // 7. Attacher le hover synchronisé sur tous les éléments racines pertinents
+    document.querySelectorAll<HTMLElement>(
+        "li[class*=\"messageListItem\"]:not([data-fsb-hover-bound]), " +
+        "div[role=\"article\"]:not([data-fsb-hover-bound]), " +
+        "div[class*=\"member__\"]:not([data-fsb-hover-bound]), " +
+        "a[class*=\"anchor\"]:not([data-fsb-hover-bound]), " +
+        "div[class*=\"voiceUser\"]:not([data-fsb-hover-bound]), " +
+        "div[class*=\"membersGroup\"]:not([data-fsb-hover-bound]), " +
+        "div[class*=\"membersGroupHeader\"]:not([data-fsb-hover-bound])"
+    ).forEach(root => {
+        // N'attacher que si ce root contient des éléments gradientés non-custom-anim
+        if (
+            root.querySelector("[data-fsb-gradient]:not([data-fsb-custom-anim]), img[data-fsb-role-icon-wrapped]:not([data-fsb-custom-anim])")
+        ) {
+            bindHoverGroup(root);
+        }
+    });
 }
 
 // Cache des guildIds pour éviter d'appeler GuildStore.getGuilds() à chaque lookup
@@ -853,7 +1251,7 @@ function injectCategoryRoleIcon(ariaHiddenContainer: HTMLElement, roleId: string
     img.src = iconUrl;
     img.dataset.fsbRoleIcon = "1";
     img.dataset.fsbRoleIconId = resolvedRoleId;
-    img.style.cssText = "width:16px;height:16px;vertical-align:middle;margin-right:3px;border-radius:2px;";
+    img.style.cssText = "width:16px;height:16px;vertical-align:text-bottom;margin-right:3px;border-radius:2px;transform:translateY(-1px);display:inline-block;";
 
     const { firstChild } = ariaHiddenContainer;
     if (firstChild) {
@@ -894,10 +1292,19 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
     if (!userId || !guildId) return;
 
     const member = GuildMemberStore.getMember(guildId, userId);
-    if (!member?.colorRoleId) return;
+    if (!member?.roles?.length) return;
 
-    const role = GuildRoleStore.getRole(guildId, member.colorRoleId);
-    if (!role?.icon) return;
+    // Discord affiche l'icône du rôle le plus haut dans la hiérarchie qui en possède une.
+    // On reproduit ce comportement : on cherche parmi tous les rôles du membre celui avec
+    // la position (position) la plus élevée ET qui a une icône.
+    let role: any = null;
+    for (const roleId of member.roles) {
+        const r = GuildRoleStore.getRole(guildId, roleId);
+        if (r?.icon && (!role || r.position > role.position)) {
+            role = r;
+        }
+    }
+    if (!role) return;
 
     const cdnHost = (window as any).GLOBAL_ENV?.CDN_HOST ?? "cdn.discordapp.com";
     const iconUrl = `https://${cdnHost}/role-icons/${role.id}/${role.icon}.webp?size=20&quality=lossless`;
@@ -905,7 +1312,7 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
     const img = document.createElement("img");
     img.src = iconUrl;
     img.dataset.fsbRoleIcon = "1";
-    img.style.cssText = "width:14px;height:14px;vertical-align:middle;border-radius:2px;margin-left:3px;";
+    img.style.cssText = "width:14px;height:14px;vertical-align:baseline;border-radius:2px;margin-left:3px;transform:translateY(2px);display:inline-block;";
 
     // Insérer à l'intérieur de div.usernameFont (après le texte du nom)
     // → collé au nom, pas poussé par le flex natif Discord
@@ -924,6 +1331,116 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
         }
     } else {
         usernameContainer.appendChild(img);
+    }
+}
+
+/**
+ * Injecte l'icône de rôle à côté du nom d'un membre dans la liste des membres.
+ * L'icône est placée directement après le span du nom, dans div.name__,
+ * afin qu'elle apparaisse inline à côté du pseudo.
+ */
+function injectMemberListRoleIcon(memberEl: HTMLElement) {
+    // Trouver userId et guildId via React fiber sur l'élément de liste
+    let userId: string | null = null;
+    let guildId: string | null = null;
+
+    const fiberKey = Object.keys(memberEl).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+    if (fiberKey) {
+        let fiber = (memberEl as any)[fiberKey];
+        for (let i = 0; i < 60 && fiber; i++) {
+            const props = fiber.memoizedProps ?? fiber.pendingProps;
+            if (props) {
+                if (!userId) {
+                    const u = props.user?.id ?? props.userId ?? props.member?.userId ?? props.member?.user?.id;
+                    if (u && /^\d{10,}$/.test(String(u))) userId = String(u);
+                }
+                if (!guildId) {
+                    const g = props.guildId ?? props.guild?.id ?? props.channel?.guild_id;
+                    if (g && /^\d{10,}$/.test(String(g))) guildId = String(g);
+                }
+                if (userId && guildId) break;
+            }
+            fiber = fiber.return;
+        }
+    }
+
+    if (!userId || !guildId) return;
+
+    const member = GuildMemberStore.getMember(guildId, userId);
+    if (!member?.roles?.length) return;
+
+    // Trouver le rôle avec la position la plus haute qui possède une icône
+    let role: any = null;
+    for (const roleId of member.roles) {
+        const r = GuildRoleStore.getRole(guildId, roleId);
+        if (r?.icon && (!role || r.position > role.position)) {
+            role = r;
+        }
+    }
+    if (!role) return;
+
+    // Vérifier s'il existe déjà une icône de rôle native Discord dans cette plaque
+    const nativeRoleIcon = memberEl.querySelector<HTMLElement>('img[class*="roleIcon"]:not([data-fsb-role-icon])');
+    if (nativeRoleIcon) return; // Discord l'affiche déjà nativement
+
+    // Vérifier si on n'a pas déjà injecté une icône pour ce rôle
+    const existingIcon = memberEl.querySelector<HTMLImageElement>("[data-fsb-role-icon][data-fsb-member-role-icon]");
+    if (existingIcon) {
+        // Si le rôle a changé, retirer l'ancienne icône
+        if (existingIcon.dataset.fsbRoleIconId === role.id) return;
+        existingIcon.remove();
+    }
+
+    const cdnHost = (window as any).GLOBAL_ENV?.CDN_HOST ?? "cdn.discordapp.com";
+    const iconUrl = `https://${cdnHost}/role-icons/${role.id}/${role.icon}.webp?size=20&quality=lossless`;
+
+    const img = document.createElement("img");
+    img.src = iconUrl;
+    img.alt = "";
+    img.dataset.fsbRoleIcon = "1";
+    img.dataset.fsbMemberRoleIcon = "1";
+    img.dataset.fsbRoleIconId = role.id;
+    img.style.cssText = "width:14px;height:14px;vertical-align:middle;border-radius:2px;margin-left:3px;flex-shrink:0;";
+
+    // Insérer l'icône directement dans le span du nom (span.username__)
+    // pour qu'elle apparaisse inline à côté du pseudo.
+    // On cible div[class*="name__"] > span[class*="username__"] (le parent direct, pas celui imbriqué)
+    const nameDiv = memberEl.querySelector<HTMLElement>('div[class*="name__"]');
+    const usernameSpan = nameDiv?.querySelector<HTMLElement>(':scope > span[class*="username__"]');
+    if (usernameSpan) {
+        // Chercher le clan tag à l'intérieur de span.username__
+        // Structure : span.username__ > [span.name__/container__, span.clanTag__?, ...]
+        const clanTag = usernameSpan.querySelector<HTMLElement>('[class*="clanTag"], [class*="serverTag"], [class*="chipletContainer"]');
+        if (clanTag) {
+            // Insérer l'icône juste avant le clan tag
+            usernameSpan.insertBefore(img, clanTag);
+        } else {
+            // Pas de clan tag : ajouter à la fin
+            usernameSpan.appendChild(img);
+        }
+
+        // Copier les variables CSS depuis nameContainer vers usernameSpan ET nameDiv pour que le glow fonctionne
+        const nameContainer = usernameSpan.querySelector<HTMLElement>("[data-fsb-gradient]");
+        if (nameContainer) {
+            const c1 = nameContainer.style.getPropertyValue("--custom-gradient-color-1");
+            const c2 = nameContainer.style.getPropertyValue("--custom-gradient-color-2");
+            const c3 = nameContainer.style.getPropertyValue("--custom-gradient-color-3");
+            if (c1) {
+                usernameSpan.style.setProperty("--custom-gradient-color-1", c1);
+                if (nameDiv) nameDiv.style.setProperty("--custom-gradient-color-1", c1);
+            }
+            if (c2) {
+                usernameSpan.style.setProperty("--custom-gradient-color-2", c2);
+                if (nameDiv) nameDiv.style.setProperty("--custom-gradient-color-2", c2);
+            }
+            if (c3) {
+                usernameSpan.style.setProperty("--custom-gradient-color-3", c3);
+                if (nameDiv) nameDiv.style.setProperty("--custom-gradient-color-3", c3);
+            }
+        }
+    } else if (nameDiv) {
+        // Fallback : ajouter directement dans div.name__ si pas de usernameSpan
+        nameDiv.appendChild(img);
     }
 }
 
@@ -951,6 +1468,79 @@ function wrapTextNodes(node: Node, g: GradientInfo) {
     }
 }
 
+/** Injecte l'icône de rôle dans une mention utilisateur */
+function injectMentionRoleIcon(mentionEl: HTMLElement) {
+    try {
+        // Obtenir l'ID du serveur actuel
+        const currentGuildId = SelectedGuildStore?.getGuildId?.();
+        if (!currentGuildId || !GuildMemberStore) return;
+
+        // Essayer de trouver le membre par son avatar dans la mention
+        const avatarImg = mentionEl.querySelector("img[src*=\"/avatars/\"]");
+        if (!avatarImg) return;
+
+        const avatarSrc = avatarImg.getAttribute("src") || "";
+        const userIdFromAvatar = avatarSrc.match(/\/avatars\/(\d+)\//)?.[1];
+        if (!userIdFromAvatar) return;
+
+        const member = GuildMemberStore.getMember(currentGuildId, userIdFromAvatar);
+        if (!member?.roles || member.roles.length === 0) return;
+
+        // Trouver le rôle avec icône le plus haut
+        const roles = GuildRoleStore.getUnsafeMutableRoles(currentGuildId);
+        if (!roles) return;
+
+        let highestRoleWithIcon: any = null;
+        let highestPosition = -1;
+
+        for (const roleId of member.roles) {
+            const role = roles[roleId];
+            if (role?.icon && role.position > highestPosition) {
+                highestRoleWithIcon = role;
+                highestPosition = role.position;
+            }
+        }
+
+        if (!highestRoleWithIcon) return;
+
+        // Créer l'icône
+        const cdnHost = (window as any).GLOBAL_ENV?.CDN_HOST ?? "cdn.discordapp.com";
+        const iconUrl = `https://${cdnHost}/role-icons/${highestRoleWithIcon.id}/${highestRoleWithIcon.icon}.webp?size=20&quality=lossless`;
+
+        const img = document.createElement("img");
+        img.src = iconUrl;
+        img.alt = "";
+        img.className = "vc-mentionAvatars-role-icon";
+        img.dataset.fsbRoleIcon = "1";
+        img.dataset.fsbRoleIconId = highestRoleWithIcon.id;
+        img.style.cssText = "width: 16px; height: 16px; margin-left: 3px; vertical-align: middle;";
+
+        // Appliquer la couleur de l'icône basée sur le gradient de la mention
+        const c1 = mentionEl.style.getPropertyValue("--custom-gradient-color-1");
+        const c2 = mentionEl.style.getPropertyValue("--custom-gradient-color-2");
+        const c3 = mentionEl.style.getPropertyValue("--custom-gradient-color-3");
+        if (c1) {
+            const color = c1 || c2;
+            img.style.setProperty("filter", makeIconFilter(color), "important");
+            img.dataset.fsbRoleIconWrapped = "1";
+            img.dataset.fsbIconC1 = c1;
+            img.dataset.fsbIconC2 = c2;
+            img.dataset.fsbIconC3 = c3;
+        }
+
+        // Insérer l'icône après le span de texte
+        const textSpan = mentionEl.querySelector("[data-fsb-mention-text]");
+        if (textSpan?.parentElement) {
+            textSpan.parentElement.appendChild(img);
+        } else {
+            // Fallback : ajouter à la fin de la mention
+            mentionEl.appendChild(img);
+        }
+    } catch (e) {
+        console.error("[fakeServerBoost] Error injecting mention role icon:", e);
+    }
+}
+
 /** Pour les mentions qui contiennent une img : wrapper le nœud texte dans un span gradienté */
 function applyGradientToMention(el: HTMLElement, g: GradientInfo) {
     if (el.dataset.fsbMention) return; // déjà entièrement traité
@@ -960,6 +1550,16 @@ function applyGradientToMention(el: HTMLElement, g: GradientInfo) {
     el.style.setProperty("--custom-gradient-color-2", g.secondary);
     el.style.setProperty("--custom-gradient-color-3", g.tertiary);
     wrapTextNodes(el, g);
+
+    // Injecter l'icône de rôle uniquement dans les mentions utilisateur (pas les mentions de rôle)
+    // Les mentions de rôle ont la classe "roleMention" et ont déjà leur icône
+    const isRoleMention = el.classList.contains("roleMention") ||
+                         el.querySelector("[class*=\"roleMention\"]") ||
+                         Array.from(el.classList).some(cls => cls.includes("roleMention"));
+
+    if (!isRoleMention && !el.querySelector("[data-fsb-role-icon]")) {
+        injectMentionRoleIcon(el);
+    }
 }
 
 function resetGradients() {
@@ -970,11 +1570,14 @@ function resetGradients() {
         while (wrapper.firstChild) parent.insertBefore(wrapper.firstChild, wrapper);
         wrapper.remove();
     });
-    // Retirer les icônes de rôle injectées dans les catégories
+    // Retirer les icônes de rôle injectées dans les catégories, voice et liste membres
     document.querySelectorAll<HTMLElement>("[data-fsb-role-icon]").forEach(img => img.remove());
-    // Retirer les marqueurs de catégorie et voice
+    // Retirer les marqueurs de catégorie, voice et liste membres
     document.querySelectorAll<HTMLElement>("[data-fsb-cat-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbCatChecked);
     document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbVoiceChecked);
+    document.querySelectorAll<HTMLElement>("[data-fsb-member-icon-checked]").forEach(el => {
+        delete (el as HTMLElement).dataset.fsbMemberIconChecked;
+    });
     document.querySelectorAll<HTMLElement>("[data-fsb-voice-container]").forEach(el => {
         delete el.dataset.fsbVoiceContainer;
         el.style.removeProperty("--custom-gradient-color-1");
@@ -988,6 +1591,8 @@ function resetGradients() {
     });
     document.querySelectorAll<HTMLElement>("[data-fsb-header-vars]").forEach(el => {
         el.style.removeProperty("--custom-gradient-color-1");
+        el.style.removeProperty("--custom-gradient-color-2");
+        el.style.removeProperty("--custom-gradient-color-3");
         delete el.dataset.fsbHeaderVars;
     });
     document.querySelectorAll<HTMLElement>("[data-fsb-gradient-name]").forEach(el => {
@@ -1000,6 +1605,34 @@ function resetGradients() {
     });
     document.querySelectorAll<HTMLElement>("[data-fsb-role-reordered]").forEach(el => {
         delete el.dataset.fsbRoleReordered;
+    });
+    // Nettoyer les filters inline posés sur les icônes de rôle
+    document.querySelectorAll<HTMLElement>("[data-fsb-role-icon-wrapped]").forEach(img => {
+        img.style.removeProperty("filter");
+        delete img.dataset.fsbRoleIconWrapped;
+        delete img.dataset.fsbIconC1;
+        delete img.dataset.fsbIconC2;
+        delete img.dataset.fsbIconC3;
+        delete img.dataset.fsbCustomAnim;
+    });
+    iconFilterResultCache.clear();
+    svgFilterContainer?.remove();
+    svgFilterContainer = null;
+    // Retirer les éventuels wrappers span résiduels (compatibilité)
+    document.querySelectorAll<HTMLElement>("span[data-fsb-role-icon-wrap]").forEach(wrap => {
+        const parent = wrap.parentNode;
+        if (!parent) return;
+        while (wrap.firstChild) parent.insertBefore(wrap.firstChild, wrap);
+        wrap.remove();
+    });
+    // Nettoyer le système de hover synchronisé
+    activeHoverGroups.clear();
+    document.querySelectorAll<HTMLElement>("[data-fsb-hover-bound]").forEach(el => {
+        delete el.dataset.fsbHoverBound;
+    });
+    document.querySelectorAll<HTMLElement>("[data-fsb-hover-anim]").forEach(el => {
+        delete el.dataset.fsbHoverAnim;
+        el.style.animationDelay = "";
     });
     gradientStyleEl?.remove();
     gradientStyleEl = null;
@@ -1123,11 +1756,34 @@ function startDomObserver() {
                     container.dataset.fsbVoiceChecked = "1";
                     if (!container.querySelector("[data-fsb-role-icon]")) injectVoiceRoleIcon(container);
                 });
+
+                // Plaques membres dans ce root
+                root.querySelectorAll<HTMLElement>('div[class*="member__"]:not([data-fsb-member-icon-checked])').forEach(memberEl => {
+                    memberEl.dataset.fsbMemberIconChecked = "1";
+                    injectMemberListRoleIcon(memberEl);
+                });
             }
 
             // Effets custom sur tout le DOM visible (peu d'éléments concernés)
             for (const effect of registeredEffects.values()) {
                 effect.applyFn();
+            }
+            // Envelopper les nouvelles icônes de rôle avec le gradient wrapper
+            wrapRoleIconsWithGradient();
+            // Attacher le hover synchronisé sur les nouveaux éléments racines
+            for (const root of roots) {
+                root.querySelectorAll<HTMLElement>(
+                    "li[class*=\"messageListItem\"]:not([data-fsb-hover-bound]), " +
+                    "div[role=\"article\"]:not([data-fsb-hover-bound]), " +
+                    "div[class*=\"member__\"]:not([data-fsb-hover-bound]), " +
+                    "a[class*=\"anchor\"]:not([data-fsb-hover-bound]), " +
+                    "div[class*=\"voiceUser\"]:not([data-fsb-hover-bound]), " +
+                    "div[class*=\"membersGroup\"]:not([data-fsb-hover-bound])"
+                ).forEach(el => {
+                    if (el.querySelector("[data-fsb-gradient]:not([data-fsb-custom-anim]), img[data-fsb-role-icon-wrapped]:not([data-fsb-custom-anim])")) {
+                        bindHoverGroup(el);
+                    }
+                });
             }
         });
     }
@@ -1178,16 +1834,20 @@ function startDomObserver() {
                 if (n.dataset?.fsbCatChecked) delete n.dataset.fsbCatChecked;
                 n.querySelectorAll("[data-fsb-voice-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbVoiceChecked);
                 if (n.dataset?.fsbVoiceChecked) delete n.dataset.fsbVoiceChecked;
+                n.querySelectorAll("[data-fsb-member-icon-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbMemberIconChecked);
+                if (n.dataset?.fsbMemberIconChecked) delete n.dataset.fsbMemberIconChecked;
                 n.querySelectorAll("[data-fsb-role-reordered]").forEach(el => delete (el as HTMLElement).dataset.fsbRoleReordered);
                 if (n.dataset?.fsbRoleReordered) delete n.dataset.fsbRoleReordered;
             });
 
-            // Détecter si un membersGroup apparaît ou disparaît
+            // Détecter si un membersGroup ou une plaque membre apparaît ou disparaît
             const hasMembersGroupChange = (() => {
                 for (const n of [...m.addedNodes, ...m.removedNodes]) {
                     if (!(n instanceof HTMLElement)) continue;
                     if (n.matches?.('[class*="membersGroup"]')) return true;
                     if (n.querySelector?.('[class*="membersGroup"]')) return true;
+                    if (n.matches?.('[class*="member__"]')) return true;
+                    if (n.querySelector?.('[class*="member__"]')) return true;
                 }
                 return !!(target.closest?.('[class*="membersGroup"]') || target.closest?.('[class*="members_"]'));
             })();
@@ -1244,6 +1904,12 @@ function startDomObserver() {
             memberUpdateTimer = null;
             // Reset catégories
             document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
+
+            // Reset plaques membres
+            document.querySelectorAll<HTMLElement>("[data-fsb-member-icon-checked]").forEach(el => {
+                el.querySelectorAll("[data-fsb-member-role-icon]").forEach(img => img.remove());
+                delete el.dataset.fsbMemberIconChecked;
+            });
 
             // Reset voice
             document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => {
@@ -1543,6 +2209,11 @@ function onChannelSelect({ guildId }: { guildId?: string | null; }) {
             el.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
             delete el.dataset.fsbCatChecked;
         });
+        // Réinitialiser les plaques de membres (icône de rôle inline)
+        document.querySelectorAll<HTMLElement>("[data-fsb-member-icon-checked]").forEach(el => {
+            el.querySelectorAll("[data-fsb-member-role-icon]").forEach(img => img.remove());
+            delete el.dataset.fsbMemberIconChecked;
+        });
         // Réinitialiser aussi les ancres et voice containers
         document.querySelectorAll<HTMLElement>("[data-fsb-anchor-checked]").forEach(el => delete el.dataset.fsbAnchorChecked);
         document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => {
@@ -1551,8 +2222,9 @@ function onChannelSelect({ guildId }: { guildId?: string | null; }) {
         });
         document.querySelectorAll<HTMLElement>("[data-fsb-role-reordered]").forEach(el => delete el.dataset.fsbRoleReordered);
     }
-    // Pas d'emitChange() ici — trop coûteux (re-render de tous les membres).
-    // Le MutationObserver prend en charge le re-scan naturellement.
+    // Forcer un scan des gradients après un changement de channel pour traiter les mentions
+    // Le délai permet au DOM de se mettre à jour avant le scan
+    setTimeout(() => applyGradientToNames(), 1000);
 }
 
 export default definePlugin({
