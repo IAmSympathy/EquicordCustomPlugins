@@ -1193,10 +1193,19 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
     if (!userId || !guildId) return;
 
     const member = GuildMemberStore.getMember(guildId, userId);
-    if (!member?.colorRoleId) return;
+    if (!member?.roles?.length) return;
 
-    const role = GuildRoleStore.getRole(guildId, member.colorRoleId);
-    if (!role?.icon) return;
+    // Discord affiche l'icône du rôle le plus haut dans la hiérarchie qui en possède une.
+    // On reproduit ce comportement : on cherche parmi tous les rôles du membre celui avec
+    // la position (position) la plus élevée ET qui a une icône.
+    let role: any = null;
+    for (const roleId of member.roles) {
+        const r = GuildRoleStore.getRole(guildId, roleId);
+        if (r?.icon && (!role || r.position > role.position)) {
+            role = r;
+        }
+    }
+    if (!role) return;
 
     const cdnHost = (window as any).GLOBAL_ENV?.CDN_HOST ?? "cdn.discordapp.com";
     const iconUrl = `https://${cdnHost}/role-icons/${role.id}/${role.icon}.webp?size=20&quality=lossless`;
