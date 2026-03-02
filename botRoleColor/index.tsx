@@ -106,7 +106,10 @@ body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="clanTag"],
 body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="serverTag"],
 body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="memberNick"] ~ [class*="clanTag"],
 body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] [class*="clanTag"],
-body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] [class*="serverTag"] {
+body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] [class*="serverTag"],
+body.${HIDE_TAGS_BODY_CLASS} [class*="chipletParent"],
+body.${HIDE_TAGS_BODY_CLASS} [class*="chipletContainer"]:has([src *="/clan-badges/"]),
+body.${HIDE_TAGS_BODY_CLASS} span[class*="clanTag"] {
     display: none !important;
 }
 `;
