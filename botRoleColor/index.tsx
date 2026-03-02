@@ -8,7 +8,7 @@ import { definePluginSettings } from "@api/Settings";
 import { Devs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByProps } from "@webpack";
-import { FluxDispatcher, GuildStore } from "@webpack/common";
+import { FluxDispatcher, GuildStore, SelectedGuildStore } from "@webpack/common";
 import backgroundImageB64 from "file://./assets/background.png?base64";
 import bannerB64 from "file://./assets/banner.png?base64";
 import bgFrostpostB64 from "file://./assets/BGs/Channels/Frostpost.jpg?base64";
@@ -51,6 +51,80 @@ let originalGetGuilds: any;
 
 // Cache des fonds de serveur enregistrés dynamiquement (guildId → url)
 let registeredGuildBanners: Record<string, string> = {};
+
+// Élément de style pour masquer les tags (bot / serveur) dans le serveur cible
+let hideTagsStyleElement: HTMLStyleElement | null = null;
+const HIDE_TAGS_BODY_CLASS = "notSoSeriousCord-in-target-guild";
+
+/** Met à jour la classe body selon si on est dans le serveur cible. */
+function updateHideTagsGuildClass() {
+    try {
+        const currentGuildId = SelectedGuildStore?.getGuildId?.() ?? null;
+        if (currentGuildId === HARDCODED_GUILD_ID) {
+            document.body.classList.add(HIDE_TAGS_BODY_CLASS);
+        } else {
+            document.body.classList.remove(HIDE_TAGS_BODY_CLASS);
+        }
+    } catch {
+        document.body.classList.remove(HIDE_TAGS_BODY_CLASS);
+    }
+}
+
+function updateHideTagsStyle() {
+    const { hideBotTagInGuild, hideServerTagInGuild, hideBoostIconInGuild } = settings.store;
+    if (!hideBotTagInGuild && !hideServerTagInGuild && !hideBoostIconInGuild) {
+        hideTagsStyleElement?.remove();
+        hideTagsStyleElement = null;
+        return;
+    }
+    if (!hideTagsStyleElement) {
+        hideTagsStyleElement = document.createElement("style");
+        hideTagsStyleElement.id = "notSoSeriousCord-hide-tags";
+        document.head.appendChild(hideTagsStyleElement);
+    }
+    let css = "";
+    if (hideBotTagInGuild) {
+        // Masque le tag « APP » uniquement dans le serveur TNSSL
+        css += `
+/* Cache le tag APP (bot) dans le serveur TNSSL uniquement */
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] span[class*="botTag"],
+body.${HIDE_TAGS_BODY_CLASS} span[class*="nameContainer"] span[class*="botTag"],
+body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] span[class*="botTag"] {
+    display: none !important;
+}
+`;
+    }
+    if (hideServerTagInGuild) {
+        // Masque les tags de serveur uniquement dans le serveur TNSSL
+        css += `
+/* Cache le tag de serveur dans le serveur TNSSL uniquement */
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="clanTag"],
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="serverTag"],
+body.${HIDE_TAGS_BODY_CLASS} span[class*="headerText"] [class*="memberNick"] ~ [class*="clanTag"],
+body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] [class*="clanTag"],
+body.${HIDE_TAGS_BODY_CLASS} div[class*="member__"] [class*="serverTag"] {
+    display: none !important;
+}
+`;
+    }
+    if (hideBoostIconInGuild) {
+        // Masque l'icône de booster (diamant rose) dans la liste des membres uniquement dans le serveur TNSSL
+        css += `
+/* Cache l'icône de booster dans la liste des membres dans le serveur TNSSL uniquement */
+body.${HIDE_TAGS_BODY_CLASS} svg[class*="premiumIcon"],
+body.${HIDE_TAGS_BODY_CLASS} [class*="nameAndDecorators"] span:has(svg[class*="premiumIcon"]) {
+    display: none !important;
+}
+`;
+    }
+    hideTagsStyleElement.textContent = css;
+}
+
+function removeHideTagsStyle() {
+    hideTagsStyleElement?.remove();
+    hideTagsStyleElement = null;
+    document.body.classList.remove(HIDE_TAGS_BODY_CLASS);
+}
 
 // roleId → données de couleur à injecter
 const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
@@ -172,7 +246,25 @@ const settings = definePluginSettings({
             resetAllBotColors();
             applyBotRoleColor();
         },
-    }
+    },
+    hideBotTagInGuild: {
+        type: OptionType.BOOLEAN,
+        description: "Masquer le tag « APP » (bot) à côté des noms d'utilisateur dans ce serveur",
+        default: true,
+        onChange: () => updateHideTagsStyle(),
+    },
+    hideServerTagInGuild: {
+        type: OptionType.BOOLEAN,
+        description: "Masquer le tag de serveur personnalisé à côté des noms d'utilisateur dans ce serveur",
+        default: true,
+        onChange: () => updateHideTagsStyle(),
+    },
+    hideBoostIconInGuild: {
+        type: OptionType.BOOLEAN,
+        description: "Masquer l'icône de booster (💎) dans la liste des membres de ce serveur",
+        default: true,
+        onChange: () => updateHideTagsStyle(),
+    },
 });
 
 // ── Bannières dynamiques (tous les serveurs avec bannière) ────────────────────
@@ -1294,9 +1386,11 @@ export default definePlugin({
         registerHardcodedRoleColors(HARDCODED_ROLE_COLORS);
         registerHardcodedChannelBgs(CHANNEL_BGS);
         registerHardcodedGuildBgs(GUILD_BGS);
+        updateHideTagsStyle();
+        updateHideTagsGuildClass();
 
         // Mettre à jour le fond global quand on change de guild
-        (this as any)._guildSelectListener = () => { updateAppBg(); registerAllGuildBanners(); };
+        (this as any)._guildSelectListener = () => { updateAppBg(); registerAllGuildBanners(); updateHideTagsGuildClass(); };
         FluxDispatcher.subscribe("GUILD_SELECT", (this as any)._guildSelectListener);
         FluxDispatcher.subscribe("CHANNEL_SELECT", (this as any)._guildSelectListener);
 
@@ -1421,6 +1515,7 @@ export default definePlugin({
         (this as any).observer?.disconnect();
         resetAllBotColors();
         removeHardcodedBanner();
+        removeHideTagsStyle();
 
         // Désabonner les listeners de changement de guild
         if ((this as any)._guildSelectListener) {
