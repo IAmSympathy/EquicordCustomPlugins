@@ -337,13 +337,9 @@ function ensureGradientStyle() {
             opacity: 1 !important;
         }
 
-        /* Glow via drop-shadow sur le parent commun qui contient nameContainer (pour le texte) */
-        /* Cibler div.name__ comme parent commun car l'icône peut être dans username__ ou à côté */
-        /* Support hover CSS pur OU hover JS via data-fsb-hover-anim */
-        div[class*="member__"]:hover div[class*="name__"]:has(span[data-fsb-gradient]),
-        div[class*="member__"]:hover span[class*="username__"]:has(span[data-fsb-gradient]),
-        div[class*="name__"]:has(span[data-fsb-gradient][data-fsb-hover-anim]),
-        span[class*="username__"]:has(span[data-fsb-gradient][data-fsb-hover-anim]) {
+        /* Glow sur le texte uniquement via le système JS (data-fsb-hover-anim) */
+        /* PAS de glow CSS pur (:hover) pour la liste des membres pour éviter le double glow */
+        span[data-fsb-gradient][data-fsb-hover-anim]:not([data-fsb-custom-anim]) {
             filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
         }
 
