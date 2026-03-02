@@ -1452,14 +1452,21 @@ export default definePlugin({
             for (const mutation of mutations) {
                 if (mutation.type !== "childList") continue;
 
-                // Ignorer nos propres injections (overlays, éléments colorés, position/zIndex)
+                // Ignorer nos propres injections (overlays, éléments colorés)
+                // Exceptions : icônes de rôle dans le serveur cible (besoin de re-scan pour les styles de masquage)
                 const allNodes = [...Array.from(mutation.addedNodes), ...Array.from(mutation.removedNodes)];
                 const isOurMutation = allNodes.every(n => {
                     if (n.nodeType !== Node.ELEMENT_NODE) return true;
                     const el = n as HTMLElement;
-                    return el.dataset.vcColored !== undefined
-                        || el.dataset.fsbRoleIcon !== undefined
-                        || el.dataset.fsbBdayStar !== undefined;
+                    // Toujours ignorer les éléments colorés et les étoiles d'anniversaire
+                    if (el.dataset.vcColored !== undefined || el.dataset.fsbBdayStar !== undefined) return true;
+                    // Pour les icônes de rôle : ignorer seulement si on n'est PAS dans le serveur cible
+                    if (el.dataset.fsbRoleIcon !== undefined) {
+                        const currentGuildId = SelectedGuildStore?.getGuildId?.() ?? null;
+                        // Si on est dans le serveur cible, ne pas ignorer (pour déclencher le re-scan)
+                        return currentGuildId !== HARDCODED_GUILD_ID;
+                    }
+                    return false;
                 });
                 if (isOurMutation) continue;
 

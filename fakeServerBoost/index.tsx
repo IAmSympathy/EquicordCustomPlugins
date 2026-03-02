@@ -627,6 +627,14 @@ export function applyRoleIcons() {
         }
     });
 
+    // 0c. Icônes de rôle dans la liste des membres (plaques utilisateur)
+    document.querySelectorAll<HTMLElement>(
+        'div[class*="member__"]:not([data-fsb-member-icon-checked])'
+    ).forEach(memberEl => {
+        memberEl.dataset.fsbMemberIconChecked = "1";
+        injectMemberListRoleIcon(memberEl);
+    });
+
 }
 
 /** Déplace le span contenant l'icône de rôle avant le span du clan tag dans les headers de messages */
@@ -697,6 +705,21 @@ function resolveGradientVarsForIcon(img: HTMLElement): { c1: string; c2: string;
             const c2 = gradParent.style.getPropertyValue("--custom-gradient-color-2");
             const c3 = gradParent.style.getPropertyValue("--custom-gradient-color-3");
             return { c1, c2: c2 || c1, c3: c3 || c2 || c1, customAnim: !!gradParent.dataset.fsbCustomAnim };
+        }
+    }
+
+    // Priorité 4 : nameContainer sibling (liste des membres — icône à côté du nameContainer)
+    // Structure : span.username__ > [span.nameContainer[data-fsb-gradient], img[data-fsb-role-icon]]
+    const usernameSpan = img.parentElement;
+    if (usernameSpan?.matches?.('span[class*="username__"]')) {
+        const nameContainer = usernameSpan.querySelector<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]');
+        if (nameContainer) {
+            const c1 = nameContainer.style.getPropertyValue("--custom-gradient-color-1");
+            const c2 = nameContainer.style.getPropertyValue("--custom-gradient-color-2");
+            if (c1 && c2) {
+                const c3 = nameContainer.style.getPropertyValue("--custom-gradient-color-3");
+                return { c1, c2, c3: c3 || c2, customAnim: !!nameContainer.dataset.fsbCustomAnim };
+            }
         }
     }
 
@@ -868,11 +891,10 @@ export function bindHoverGroup(root: HTMLElement) {
 
 /**
  * Applique un filter CSS statique sur une img roleIcon.
- * - Liste membres (isMemberList=true) : couleur primaire (c1)
- * - Messages / voice / autres : couleur secondaire (c2)
+ * Utilise toujours la couleur secondaire (c2) pour être cohérent avec les autres endroits.
  */
-function applyFilterToRoleIcon(img: HTMLElement, vars: { c1: string; c2: string; c3: string; customAnim: boolean; }, isMemberList = false) {
-    const color = isMemberList ? vars.c1 : (vars.c2 || vars.c1);
+function applyFilterToRoleIcon(img: HTMLElement, vars: { c1: string; c2: string; c3: string; customAnim: boolean; }) {
+    const color = vars.c2 || vars.c1;
     if (!hexToRgb(color)) return;
 
     img.style.setProperty("filter", makeIconFilter(color), "important");
@@ -894,8 +916,7 @@ export function wrapRoleIconsWithGradient() {
     ).forEach(img => {
         const vars = resolveGradientVarsForIcon(img);
         if (!vars) return;
-        const isMemberList = !!img.closest("[class*=\"member__\"], [class*=\"members_\"]");
-        applyFilterToRoleIcon(img, vars, isMemberList);
+        applyFilterToRoleIcon(img, vars);
     });
 
     // Cas 2 : icônes injectées par notre code (catégories membres, voice)
@@ -904,8 +925,7 @@ export function wrapRoleIconsWithGradient() {
     ).forEach(img => {
         const vars = resolveGradientVarsForIcon(img);
         if (!vars) return;
-        const isMemberList = !!img.closest("[class*=\"member__\"], [class*=\"members_\"]");
-        applyFilterToRoleIcon(img, vars, isMemberList);
+        applyFilterToRoleIcon(img, vars);
     });
 }
 
@@ -1235,6 +1255,96 @@ function injectVoiceRoleIcon(usernameContainer: HTMLElement) {
     }
 }
 
+/**
+ * Injecte l'icône de rôle à côté du nom d'un membre dans la liste des membres.
+ * L'icône est placée directement après le span du nom, dans div.name__,
+ * afin qu'elle apparaisse inline à côté du pseudo.
+ */
+function injectMemberListRoleIcon(memberEl: HTMLElement) {
+    // Trouver userId et guildId via React fiber sur l'élément de liste
+    let userId: string | null = null;
+    let guildId: string | null = null;
+
+    const fiberKey = Object.keys(memberEl).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+    if (fiberKey) {
+        let fiber = (memberEl as any)[fiberKey];
+        for (let i = 0; i < 60 && fiber; i++) {
+            const props = fiber.memoizedProps ?? fiber.pendingProps;
+            if (props) {
+                if (!userId) {
+                    const u = props.user?.id ?? props.userId ?? props.member?.userId ?? props.member?.user?.id;
+                    if (u && /^\d{10,}$/.test(String(u))) userId = String(u);
+                }
+                if (!guildId) {
+                    const g = props.guildId ?? props.guild?.id ?? props.channel?.guild_id;
+                    if (g && /^\d{10,}$/.test(String(g))) guildId = String(g);
+                }
+                if (userId && guildId) break;
+            }
+            fiber = fiber.return;
+        }
+    }
+
+    if (!userId || !guildId) return;
+
+    const member = GuildMemberStore.getMember(guildId, userId);
+    if (!member?.roles?.length) return;
+
+    // Trouver le rôle avec la position la plus haute qui possède une icône
+    let role: any = null;
+    for (const roleId of member.roles) {
+        const r = GuildRoleStore.getRole(guildId, roleId);
+        if (r?.icon && (!role || r.position > role.position)) {
+            role = r;
+        }
+    }
+    if (!role) return;
+
+    // Vérifier s'il existe déjà une icône de rôle native Discord dans cette plaque
+    const nativeRoleIcon = memberEl.querySelector<HTMLElement>('img[class*="roleIcon"]:not([data-fsb-role-icon])');
+    if (nativeRoleIcon) return; // Discord l'affiche déjà nativement
+
+    // Vérifier si on n'a pas déjà injecté une icône pour ce rôle
+    const existingIcon = memberEl.querySelector<HTMLImageElement>("[data-fsb-role-icon][data-fsb-member-role-icon]");
+    if (existingIcon) {
+        // Si le rôle a changé, retirer l'ancienne icône
+        if (existingIcon.dataset.fsbRoleIconId === role.id) return;
+        existingIcon.remove();
+    }
+
+    const cdnHost = (window as any).GLOBAL_ENV?.CDN_HOST ?? "cdn.discordapp.com";
+    const iconUrl = `https://${cdnHost}/role-icons/${role.id}/${role.icon}.webp?size=20&quality=lossless`;
+
+    const img = document.createElement("img");
+    img.src = iconUrl;
+    img.alt = "";
+    img.dataset.fsbRoleIcon = "1";
+    img.dataset.fsbMemberRoleIcon = "1";
+    img.dataset.fsbRoleIconId = role.id;
+    img.style.cssText = "width:14px;height:14px;vertical-align:middle;border-radius:2px;margin-left:3px;flex-shrink:0;";
+
+    // Insérer l'icône directement dans le span du nom (span.username__)
+    // pour qu'elle apparaisse inline à côté du pseudo.
+    // On cible span[class*="username__"] (liste membres) qui est l'élément le plus précis.
+    const usernameSpan = memberEl.querySelector<HTMLElement>('[class*="username__"]');
+    if (usernameSpan) {
+        // Chercher le clan tag à l'intérieur de span.username__
+        // Structure : span.username__ > [span.name__/container__, span.clanTag__?, ...]
+        const clanTag = usernameSpan.querySelector<HTMLElement>('[class*="clanTag"], [class*="serverTag"], [class*="chipletContainer"]');
+        if (clanTag) {
+            // Insérer l'icône juste avant le clan tag
+            usernameSpan.insertBefore(img, clanTag);
+        } else {
+            // Pas de clan tag : ajouter à la fin
+            usernameSpan.appendChild(img);
+        }
+    } else {
+        // Fallback : div.name__
+        const nameDiv = memberEl.querySelector<HTMLElement>('[class*="name__"]');
+        if (nameDiv) nameDiv.appendChild(img);
+    }
+}
+
 /** Wrappe récursivement tous les nœuds texte non vides dans un span gradienté,
  *  en sautant les branches img/svg et les wrappers déjà posés. */
 function wrapTextNodes(node: Node, g: GradientInfo) {
@@ -1278,11 +1388,14 @@ function resetGradients() {
         while (wrapper.firstChild) parent.insertBefore(wrapper.firstChild, wrapper);
         wrapper.remove();
     });
-    // Retirer les icônes de rôle injectées dans les catégories
+    // Retirer les icônes de rôle injectées dans les catégories, voice et liste membres
     document.querySelectorAll<HTMLElement>("[data-fsb-role-icon]").forEach(img => img.remove());
-    // Retirer les marqueurs de catégorie et voice
+    // Retirer les marqueurs de catégorie, voice et liste membres
     document.querySelectorAll<HTMLElement>("[data-fsb-cat-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbCatChecked);
     document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbVoiceChecked);
+    document.querySelectorAll<HTMLElement>("[data-fsb-member-icon-checked]").forEach(el => {
+        delete (el as HTMLElement).dataset.fsbMemberIconChecked;
+    });
     document.querySelectorAll<HTMLElement>("[data-fsb-voice-container]").forEach(el => {
         delete el.dataset.fsbVoiceContainer;
         el.style.removeProperty("--custom-gradient-color-1");
@@ -1461,6 +1574,12 @@ function startDomObserver() {
                     container.dataset.fsbVoiceChecked = "1";
                     if (!container.querySelector("[data-fsb-role-icon]")) injectVoiceRoleIcon(container);
                 });
+
+                // Plaques membres dans ce root
+                root.querySelectorAll<HTMLElement>('div[class*="member__"]:not([data-fsb-member-icon-checked])').forEach(memberEl => {
+                    memberEl.dataset.fsbMemberIconChecked = "1";
+                    injectMemberListRoleIcon(memberEl);
+                });
             }
 
             // Effets custom sur tout le DOM visible (peu d'éléments concernés)
@@ -1533,16 +1652,20 @@ function startDomObserver() {
                 if (n.dataset?.fsbCatChecked) delete n.dataset.fsbCatChecked;
                 n.querySelectorAll("[data-fsb-voice-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbVoiceChecked);
                 if (n.dataset?.fsbVoiceChecked) delete n.dataset.fsbVoiceChecked;
+                n.querySelectorAll("[data-fsb-member-icon-checked]").forEach(el => delete (el as HTMLElement).dataset.fsbMemberIconChecked);
+                if (n.dataset?.fsbMemberIconChecked) delete n.dataset.fsbMemberIconChecked;
                 n.querySelectorAll("[data-fsb-role-reordered]").forEach(el => delete (el as HTMLElement).dataset.fsbRoleReordered);
                 if (n.dataset?.fsbRoleReordered) delete n.dataset.fsbRoleReordered;
             });
 
-            // Détecter si un membersGroup apparaît ou disparaît
+            // Détecter si un membersGroup ou une plaque membre apparaît ou disparaît
             const hasMembersGroupChange = (() => {
                 for (const n of [...m.addedNodes, ...m.removedNodes]) {
                     if (!(n instanceof HTMLElement)) continue;
                     if (n.matches?.('[class*="membersGroup"]')) return true;
                     if (n.querySelector?.('[class*="membersGroup"]')) return true;
+                    if (n.matches?.('[class*="member__"]')) return true;
+                    if (n.querySelector?.('[class*="member__"]')) return true;
                 }
                 return !!(target.closest?.('[class*="membersGroup"]') || target.closest?.('[class*="members_"]'));
             })();
@@ -1599,6 +1722,12 @@ function startDomObserver() {
             memberUpdateTimer = null;
             // Reset catégories
             document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]').forEach(resetCatEl);
+
+            // Reset plaques membres
+            document.querySelectorAll<HTMLElement>("[data-fsb-member-icon-checked]").forEach(el => {
+                el.querySelectorAll("[data-fsb-member-role-icon]").forEach(img => img.remove());
+                delete el.dataset.fsbMemberIconChecked;
+            });
 
             // Reset voice
             document.querySelectorAll<HTMLElement>("[data-fsb-voice-checked]").forEach(el => {
@@ -1897,6 +2026,11 @@ function onChannelSelect({ guildId }: { guildId?: string | null; }) {
         document.querySelectorAll<HTMLElement>("[data-fsb-cat-checked]").forEach(el => {
             el.querySelectorAll("[data-fsb-role-icon]").forEach(img => img.remove());
             delete el.dataset.fsbCatChecked;
+        });
+        // Réinitialiser les plaques de membres (icône de rôle inline)
+        document.querySelectorAll<HTMLElement>("[data-fsb-member-icon-checked]").forEach(el => {
+            el.querySelectorAll("[data-fsb-member-role-icon]").forEach(img => img.remove());
+            delete el.dataset.fsbMemberIconChecked;
         });
         // Réinitialiser aussi les ancres et voice containers
         document.querySelectorAll<HTMLElement>("[data-fsb-anchor-checked]").forEach(el => delete el.dataset.fsbAnchorChecked);
