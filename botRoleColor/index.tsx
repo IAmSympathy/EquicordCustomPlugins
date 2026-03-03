@@ -17,8 +17,8 @@ import bgLandofTheDamnedB64 from "file://./assets/BGs/Channels/LandofTheDamned.j
 import bgMentalInstitutionB64 from "file://./assets/BGs/Channels/MentalInstitution.jpg?base64";
 import bgNetricsaB64 from "file://./assets/BGs/Channels/Netricsa.png?base64";
 import bgOilRigB64 from "file://./assets/BGs/Channels/OilRig.jpg?base64";
-import bgSiberiaB64 from "file://./assets/BGs/Channels/Siberia.jpg?base64";
 import bgSaratogaB64 from "file://./assets/BGs/Channels/Saratoga.png?base64";
+import bgSiberiaB64 from "file://./assets/BGs/Channels/Siberia.jpg?base64";
 import bgSiriusB64 from "file://./assets/BGs/Channels/Sirius.jpg?base64";
 import bgSSSCenterpriceB64 from "file://./assets/BGs/Channels/SSSCenterprice.jpg?base64";
 import bgTNSSLB64 from "file://./assets/BGs/Servers/TNSSL.jpg?base64";
@@ -218,12 +218,6 @@ const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
     "829528687358509116": {
         colorStrings: { primaryColor: "#00e7fe", secondaryColor: "#87f5ff", tertiaryColor: undefined },
         colors: { primary_color: 2397403, secondary_color: 2391440, tertiary_color: undefined },
-        displayNameStyles: null,
-    },
-    // Cosmic Heart 💕 (User)
-    "746147605595160697": {
-        colorStrings: { primaryColor: "#C39BD3", secondaryColor: "#FFB6C1", tertiaryColor: undefined },
-        colors: { primary_color: 12753875, secondary_color: 16758465, tertiary_color: undefined },
         displayNameStyles: null,
     },
 };
@@ -683,7 +677,6 @@ const SILVER_PRIMARY_RGB = "rgb(192, 192, 192)"; // #c0c0c0
 const BRONZE_PRIMARY_RGB = "rgb(160, 88, 34)"; // #a05822
 const CELESTIAL_PRIMARY_RGB = "rgb(168, 85, 247)"; // #a855f7
 const CRYSTAL_PRIMARY_RGB = "rgb(255, 93, 214)"; // #ff5dd6
-const COSMIC_HEART_PRIMARY_RGB = "rgb(195, 155, 211)"; // #C39BD3
 
 // ── 🎂 HAPPY BIRTHDAY ────────────────────────────────────────────────────────
 
@@ -946,7 +939,7 @@ function applyNetricsaEffect() {
         if (vc?.dataset.fsbVoiceContainer) { vc.dataset.fsbNetricsaVoice = "1"; vc.dataset.fsbCustomAnim = "1"; }
     });
     // Mentions utilisateur et mentions de rôle avec couleur Netricsa
-    document.querySelectorAll<HTMLElement>('span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(mention => {
+    document.querySelectorAll<HTMLElement>("span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-netricsa])").forEach(mention => {
         const c1 = mention.style.getPropertyValue("--custom-gradient-color-1");
         if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) return;
         mention.dataset.fsbNetricsa = "1"; mention.dataset.fsbCustomAnim = "1";
@@ -1279,12 +1272,12 @@ function injectCelestialStars(target: HTMLElement) {
 
             // Positions prédéfinies autour du nom (haut et côtés uniquement)
             const basePositions = [
-                { x: 0, y: -1 },           // Haut centre
-                { x: -0.7, y: -0.7 },      // Haut gauche
-                { x: 0.7, y: -0.7 },       // Haut droite
-                { x: -1, y: 0 },           // Milieu gauche
-                { x: 1, y: 0 },            // Milieu droite
-                { x: -0.5, y: -0.9 }       // Haut gauche léger
+                { x: 0, y: -1 }, // Haut centre
+                { x: -0.7, y: -0.7 }, // Haut gauche
+                { x: 0.7, y: -0.7 }, // Haut droite
+                { x: -1, y: 0 }, // Milieu gauche
+                { x: 1, y: 0 }, // Milieu droite
+                { x: -0.5, y: -0.9 } // Haut gauche léger
             ];
 
             const basePos = basePositions[i % basePositions.length];
@@ -1353,12 +1346,12 @@ function injectCelestialStarsVoice(voiceContainer: HTMLElement, usernameContaine
 
             // Positions prédéfinies autour du nom (haut et côtés uniquement)
             const basePositions = [
-                { x: 0, y: -1 },           // Haut centre
-                { x: -0.7, y: -0.7 },      // Haut gauche
-                { x: 0.7, y: -0.7 },       // Haut droite
-                { x: -1, y: 0 },           // Milieu gauche
-                { x: 1, y: 0 },            // Milieu droite
-                { x: -0.5, y: -0.9 }       // Haut gauche léger
+                { x: 0, y: -1 }, // Haut centre
+                { x: -0.7, y: -0.7 }, // Haut gauche
+                { x: 0.7, y: -0.7 }, // Haut droite
+                { x: -1, y: 0 }, // Milieu gauche
+                { x: 1, y: 0 }, // Milieu droite
+                { x: -0.5, y: -0.9 } // Haut gauche léger
             ];
 
             const basePos = basePositions[i % basePositions.length];
@@ -1753,8 +1746,8 @@ const CRYSTAL_CSS = `
 // ── Définition de tous les effets à enregistrer ───────────────────────────────
 
 const CUSTOM_EFFECTS: CustomEffect[] = [
-    { id: "birthday",  styleCSS: BIRTHDAY_CSS,  applyFn: applyBirthdayEffect,  cleanupFn: cleanupBirthdayEffect,  primaryRGB: BIRTHDAY_PRIMARY_RGB },
-    { id: "netricsa",  styleCSS: NETRICSA_CSS,  applyFn: applyNetricsaEffect,  cleanupFn: cleanupNetricsaEffect,  primaryRGB: NETRICSA_PRIMARY_RGB },
+    { id: "birthday", styleCSS: BIRTHDAY_CSS, applyFn: applyBirthdayEffect, cleanupFn: cleanupBirthdayEffect, primaryRGB: BIRTHDAY_PRIMARY_RGB },
+    { id: "netricsa", styleCSS: NETRICSA_CSS, applyFn: applyNetricsaEffect, cleanupFn: cleanupNetricsaEffect, primaryRGB: NETRICSA_PRIMARY_RGB },
     {
         id: "medals",
         styleCSS: MEDALS_CSS,
@@ -1825,7 +1818,7 @@ const GUILD_BGS: Record<string, string> = {
 export default definePlugin({
     name: "The Not So Serious Cord",
     description: "Apply custom colors to specific bots' messages and names with configurable intensity",
-    authors: [Devs.IAmSympathy],
+    authors: [Devs.Ven],
     dependencies: ["Fake Server Boost Level 2", "DynamicChannelBackground"],
     settings,
 
