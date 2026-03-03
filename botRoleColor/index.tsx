@@ -17,11 +17,12 @@ import bgLandofTheDamnedB64 from "file://./assets/BGs/Channels/LandofTheDamned.j
 import bgMentalInstitutionB64 from "file://./assets/BGs/Channels/MentalInstitution.jpg?base64";
 import bgNetricsaB64 from "file://./assets/BGs/Channels/Netricsa.png?base64";
 import bgOilRigB64 from "file://./assets/BGs/Channels/OilRig.jpg?base64";
-import bgSiberiaB64 from "file://./assets/BGs/Channels/Siberia.jpg?base64";
 import bgSaratogaB64 from "file://./assets/BGs/Channels/Saratoga.png?base64";
+import bgSiberiaB64 from "file://./assets/BGs/Channels/Siberia.jpg?base64";
 import bgSiriusB64 from "file://./assets/BGs/Channels/Sirius.jpg?base64";
 import bgSSSCenterpriceB64 from "file://./assets/BGs/Channels/SSSCenterprice.jpg?base64";
 import bgTNSSLB64 from "file://./assets/BGs/Servers/TNSSL.jpg?base64";
+import crystalGemB64 from "file://./assets/crystal-gem.webp?base64";
 
 import {
     registerHardcodedChannelBgs,
@@ -675,6 +676,7 @@ const GOLDEN_PRIMARY_RGB = "rgb(191, 155, 48)"; // #bf9b30
 const SILVER_PRIMARY_RGB = "rgb(192, 192, 192)"; // #c0c0c0
 const BRONZE_PRIMARY_RGB = "rgb(160, 88, 34)"; // #a05822
 const CELESTIAL_PRIMARY_RGB = "rgb(168, 85, 247)"; // #a855f7
+const CRYSTAL_PRIMARY_RGB = "rgb(255, 93, 214)"; // #ff5dd6
 
 // ── 🎂 HAPPY BIRTHDAY ────────────────────────────────────────────────────────
 
@@ -937,7 +939,7 @@ function applyNetricsaEffect() {
         if (vc?.dataset.fsbVoiceContainer) { vc.dataset.fsbNetricsaVoice = "1"; vc.dataset.fsbCustomAnim = "1"; }
     });
     // Mentions utilisateur et mentions de rôle avec couleur Netricsa
-    document.querySelectorAll<HTMLElement>('span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-netricsa])').forEach(mention => {
+    document.querySelectorAll<HTMLElement>("span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-netricsa])").forEach(mention => {
         const c1 = mention.style.getPropertyValue("--custom-gradient-color-1");
         if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) return;
         mention.dataset.fsbNetricsa = "1"; mention.dataset.fsbCustomAnim = "1";
@@ -1224,9 +1226,7 @@ const MEDALS_CSS = `
 
 // ── 🔮 CELESTIAL ─────────────────────────────────────────────────────────────
 
-const CELESTIAL_STARS_CHARS = ["✦", "✦", "✦", "✦"];
-const CELESTIAL_ORBIT_RADIUS = 14;
-const CELESTIAL_ORBIT_DURATION = 2.4;
+const CELESTIAL_STARS_CHARS = ["✦", "✦", "✦", "✦", "✦", "✦"];
 
 function injectCelestialStars(target: HTMLElement) {
     if (target.querySelector("[data-fsb-cstar]")) return;
@@ -1235,19 +1235,69 @@ function injectCelestialStars(target: HTMLElement) {
     wrap.style.cssText = "position:relative;display:inline-block;";
     while (target.firstChild) wrap.appendChild(target.firstChild);
     target.appendChild(wrap);
+
+    // Créer les étoiles avec positions temporaires
+    const stars: HTMLElement[] = [];
     CELESTIAL_STARS_CHARS.forEach((char, i) => {
         const star = document.createElement("span");
         star.dataset.fsbCstar = String(i);
         star.textContent = char;
-        const startDeg = (360 / CELESTIAL_STARS_CHARS.length) * i;
-        star.style.setProperty("--orbit-start", `${startDeg}deg`);
-        star.style.setProperty("--orbit-rx", `${CELESTIAL_ORBIT_RADIUS}px`);
-        star.style.setProperty("--orbit-duration", `${CELESTIAL_ORBIT_DURATION}s`);
+        star.style.setProperty("--twinkle-duration", `${1.2 + (i * 0.3)}s`);
+        star.style.animationDelay = `${i * 0.2}s`;
+        star.style.top = "50%";
+        star.style.left = "50%";
         wrap.appendChild(star);
+        stars.push(star);
     });
+
+    // Calculer les positions après le rendu
     requestAnimationFrame(() => {
-        const w = wrap.offsetWidth;
-        if (w > 0) wrap.querySelectorAll<HTMLElement>("[data-fsb-cstar]").forEach(s => s.style.setProperty("--orbit-rx", `${Math.round(w / 2) + 6}px`));
+        const nameWidth = wrap.offsetWidth;
+        const nameHeight = wrap.offsetHeight;
+        if (nameWidth === 0) return;
+
+        // Vérifier s'il y a une icône de rôle
+        const roleIcon = wrap.querySelector<HTMLElement>('img[class*="role-icon"], [data-fsb-role-icon]');
+        const roleIconWidth = roleIcon ? (roleIcon.offsetWidth + 4) : 0; // +4 pour le margin
+
+        // Positions relatives en fonction de la taille du nom + icône
+        const halfWidth = nameWidth / 2;
+        const halfHeight = nameHeight / 2;
+        const marginVertical = 12;
+
+        // Pour chaque étoile, générer DEUX positions aléatoires différentes
+        stars.forEach((star, i) => {
+            // Vérifier s'il y a une icône de rôle pour compensation
+            const iconOffset = roleIconWidth / 2;
+
+            // Positions prédéfinies autour du nom (haut et côtés uniquement)
+            const basePositions = [
+                { x: 0, y: -1 }, // Haut centre
+                { x: -0.7, y: -0.7 }, // Haut gauche
+                { x: 0.7, y: -0.7 }, // Haut droite
+                { x: -1, y: 0 }, // Milieu gauche
+                { x: 1, y: 0 }, // Milieu droite
+                { x: -0.5, y: -0.9 } // Haut gauche léger
+            ];
+
+            const basePos = basePositions[i % basePositions.length];
+            const distance1 = marginVertical + Math.random() * 8;
+            const distance2 = marginVertical + Math.random() * 8;
+
+            // Première position
+            const x1 = basePos.x * (halfWidth + distance1) - (basePos.x < 0 ? iconOffset : 0);
+            const y1 = basePos.y * (halfHeight + distance1);
+
+            // Deuxième position (variation aléatoire de la première)
+            const variance = -2;
+            const x2 = basePos.x * (halfWidth + distance2) * (1 + (Math.random() + 0.5) * variance) - (basePos.x < 0 ? iconOffset : 0);
+            const y2 = basePos.y * (halfHeight + distance2) * (1 + (Math.random() + 0.5) * variance);
+
+            star.style.setProperty("--star-x1", `${x1.toFixed(1)}px`);
+            star.style.setProperty("--star-y1", `${y1.toFixed(1)}px`);
+            star.style.setProperty("--star-x2", `${x2.toFixed(1)}px`);
+            star.style.setProperty("--star-y2", `${y2.toFixed(1)}px`);
+        });
     });
 }
 
@@ -1255,32 +1305,72 @@ function injectCelestialStarsVoice(voiceContainer: HTMLElement, usernameContaine
     if (voiceContainer.querySelector("[data-fsb-cstar]")) return;
     voiceContainer.style.position = "relative";
     voiceContainer.style.overflow = "visible";
+
+    // Créer les étoiles
+    const stars: HTMLElement[] = [];
     CELESTIAL_STARS_CHARS.forEach((char, i) => {
         const star = document.createElement("span");
         star.dataset.fsbCstar = String(i);
         star.dataset.fsbCstarVoice = "1";
         star.textContent = char;
-        const startDeg = (360 / CELESTIAL_STARS_CHARS.length) * i;
-        star.style.cssText = "position:absolute;pointer-events:none;";
-        star.style.setProperty("--orbit-start", `${startDeg}deg`);
-        star.style.setProperty("--orbit-rx", `${CELESTIAL_ORBIT_RADIUS}px`);
-        star.style.setProperty("--orbit-duration", `${CELESTIAL_ORBIT_DURATION}s`);
-        star.style.setProperty("--star-top", "50%");
-        star.style.setProperty("--star-left", "50%");
+        star.style.cssText = "position:absolute;pointer-events:none;top:50%;left:50%;";
+        star.style.setProperty("--twinkle-duration", `${1.2 + (i * 0.3)}s`);
+        star.style.animationDelay = `${i * 0.2}s`;
         voiceContainer.appendChild(star);
+        stars.push(star);
     });
+
     requestAnimationFrame(() => {
         const nameDiv = usernameContainer.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]") ?? usernameContainer;
         const vcRect = voiceContainer.getBoundingClientRect();
         const nameRect = nameDiv.getBoundingClientRect();
         if (vcRect.width === 0 || nameRect.width === 0) return;
+
         const centerLeft = (nameRect.left - vcRect.left) + nameRect.width / 2;
         const centerTop = (nameRect.top - vcRect.top) + nameRect.height / 2;
-        const rx = Math.round(nameRect.width / 2) + 6;
-        voiceContainer.querySelectorAll<HTMLElement>("[data-fsb-cstar-voice]").forEach(star => {
-            star.style.setProperty("--star-top", `${centerTop}px`);
-            star.style.setProperty("--star-left", `${centerLeft}px`);
-            star.style.setProperty("--orbit-rx", `${rx}px`);
+
+        // Vérifier s'il y a une icône de rôle
+        const roleIcon = usernameContainer.querySelector<HTMLElement>('img[class*="role-icon"], [data-fsb-role-icon]');
+        const roleIconWidth = roleIcon ? (roleIcon.offsetWidth + 4) : 0;
+
+        const halfWidth = nameRect.width / 2;
+        const halfHeight = nameRect.height / 2;
+        const marginVertical = 12;
+
+        stars.forEach((star, i) => {
+            star.style.top = `${centerTop}px`;
+            star.style.left = `${centerLeft}px`;
+
+            // Vérifier s'il y a une icône de rôle pour compensation
+            const iconOffset = roleIconWidth / 2;
+
+            // Positions prédéfinies autour du nom (haut et côtés uniquement)
+            const basePositions = [
+                { x: 0, y: -1 }, // Haut centre
+                { x: -0.7, y: -0.7 }, // Haut gauche
+                { x: 0.7, y: -0.7 }, // Haut droite
+                { x: -1, y: 0 }, // Milieu gauche
+                { x: 1, y: 0 }, // Milieu droite
+                { x: -0.5, y: -0.9 } // Haut gauche léger
+            ];
+
+            const basePos = basePositions[i % basePositions.length];
+            const distance1 = marginVertical + Math.random() * 8;
+            const distance2 = marginVertical + Math.random() * 8;
+
+            // Première position
+            const x1 = basePos.x * (halfWidth + distance1) - (basePos.x < 0 ? iconOffset : 0);
+            const y1 = basePos.y * (halfHeight + distance1);
+
+            // Deuxième position (variation aléatoire de la première)
+            const variance = 3;
+            const x2 = basePos.x * (halfWidth + distance2) * (1 + (Math.random() - 0.5) * variance) - (basePos.x < 0 ? iconOffset : 0);
+            const y2 = basePos.y * (halfHeight + distance2) * (1 + (Math.random() - 0.5) * variance);
+
+            star.style.setProperty("--star-x1", `${x1.toFixed(1)}px`);
+            star.style.setProperty("--star-y1", `${y1.toFixed(1)}px`);
+            star.style.setProperty("--star-x2", `${x2.toFixed(1)}px`);
+            star.style.setProperty("--star-y2", `${y2.toFixed(1)}px`);
         });
     });
 }
@@ -1382,29 +1472,282 @@ const CELESTIAL_CSS = `
     }
     [data-fsb-cstar] {
         position: absolute !important; display: inline-block !important; pointer-events: none !important;
-        font-size: 9px !important; line-height: 1 !important; top: 50% !important; left: 50% !important;
-        margin: -5px 0 0 -5px !important; width: 10px !important; height: 10px !important;
-        text-align: center !important; opacity: 0 !important; z-index: 9999 !important;
+        font-size: 10px !important; line-height: 1 !important;
+        width: 10px !important; height: 10px !important;
+        text-align: center !important; opacity: 0 !important; z-index: 999999 !important;
         -webkit-text-fill-color: currentcolor !important; background-clip: unset !important;
         -webkit-background-clip: unset !important; background-image: none !important; color: #e9d5ff !important;
+        margin: -5px 0 0 -5px !important;
     }
-    [data-fsb-cstar-voice] { top: var(--star-top, 50%) !important; left: var(--star-left, 50%) !important; margin: -5px 0 0 -5px !important; }
+    [data-fsb-cstar-voice] { margin: -5px 0 0 -5px !important; }
     div[class*="member__"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
     div[role="article"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
     li[class*="messageListItem"]:hover [data-fsb-celestial-wrap] [data-fsb-cstar],
-    span[data-fsb-celestial-wrap]:hover [data-fsb-cstar] { opacity: 1 !important; animation: fsb-celestial-orbit var(--orbit-duration, 2.4s) linear infinite !important; }
-    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-celestial-voice] [data-fsb-cstar-voice] { opacity: 1 !important; animation: fsb-celestial-orbit var(--orbit-duration, 2.4s) linear infinite !important; }
-    @keyframes fsb-celestial-orbit {
-        from { opacity: 1; transform: rotate(var(--orbit-start, 0deg)) translateX(var(--orbit-rx, 20px)) rotate(calc(-1 * var(--orbit-start, 0deg))); }
-        to   { opacity: 1; transform: rotate(calc(var(--orbit-start, 0deg) + 360deg)) translateX(var(--orbit-rx, 20px)) rotate(calc(-1 * (var(--orbit-start, 0deg) + 360deg))); }
+    span[data-fsb-celestial-wrap]:hover [data-fsb-cstar] {
+        animation: fsb-celestial-sparkle var(--twinkle-duration, 1.5s) ease-in-out infinite !important;
+        opacity: 1 !important;
+    }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-celestial-voice] [data-fsb-cstar-voice] {
+        animation: fsb-celestial-sparkle var(--twinkle-duration, 1.5s) ease-in-out infinite !important;
+        opacity: 1 !important;
+    }
+    @keyframes fsb-celestial-sparkle {
+        0% {
+            opacity: 0;
+            transform: translate(var(--star-x1, 0px), var(--star-y1, 0px)) scale(0.3);
+        }
+        15% {
+            opacity: 1;
+            transform: translate(var(--star-x1, 0px), var(--star-y1, 0px)) scale(1);
+        }
+        35% {
+            opacity: 0;
+            transform: translate(var(--star-x1, 0px), var(--star-y1, 0px)) scale(0.3);
+        }
+        50% {
+            opacity: 0;
+            transform: translate(var(--star-x2, 10px), var(--star-y2, -10px)) scale(0.3);
+        }
+        65% {
+            opacity: 1;
+            transform: translate(var(--star-x2, 10px), var(--star-y2, -10px)) scale(1);
+        }
+        85% {
+            opacity: 0;
+            transform: translate(var(--star-x2, 10px), var(--star-y2, -10px)) scale(0.3);
+        }
+        100% {
+            opacity: 0;
+            transform: translate(var(--star-x1, 0px), var(--star-y1, 0px)) scale(0.3);
+        }
+    }
+            transform: translate(var(--star-x1, 0px), var(--star-y1, 0px)) scale(0.3);
+        }
+    }
+`;
+
+// ── 💎 CRYSTAL (SIMP) ────────────────────────────────────────────────────────
+
+const CRYSTAL_GEM_URL = crystalGemB64 ? `data:image/png;base64,${crystalGemB64}` : "";
+const CRYSTAL_GEM_COUNT = 6;
+
+function injectCrystalGems(target: HTMLElement) {
+    if (target.querySelector("[data-fsb-cgem]")) return;
+    const wrap = document.createElement("span");
+    wrap.dataset.fsbCrystalWrap = "1";
+    wrap.style.cssText = "position:relative;display:inline-block;";
+    while (target.firstChild) wrap.appendChild(target.firstChild);
+    target.appendChild(wrap);
+
+    // Créer les gemmes avec positions temporaires
+    const gems: HTMLElement[] = [];
+    for (let i = 0; i < CRYSTAL_GEM_COUNT; i++) {
+        const gem = document.createElement("img");
+        gem.dataset.fsbCgem = String(i);
+        gem.src = CRYSTAL_GEM_URL;
+        gem.alt = "💎";
+        gem.style.setProperty("--fountain-duration", `${1.5 + (i * 0.2)}s`);
+        gem.style.animationDelay = `${i * 0.15}s`;
+        gem.style.top = "50%";
+        gem.style.left = "50%";
+        wrap.appendChild(gem);
+        gems.push(gem);
+    }
+
+    // Calculer les positions après le rendu
+    requestAnimationFrame(() => {
+        const nameWidth = wrap.offsetWidth;
+        if (nameWidth === 0) return;
+
+        // Les gemmes partent du centre et montent en arc
+        gems.forEach((gem, i) => {
+            // Angle de départ pour créer un effet de fontaine
+            const angle = -90 + (i - 2.5) * 20; // De -140° à -40° (vers le haut)
+            const distance = 40 + (i % 2) * 10; // Distance variable
+            gem.style.setProperty("--fountain-angle", `${angle}deg`);
+            gem.style.setProperty("--fountain-distance", `${distance}px`);
+        });
+    });
+}
+
+function injectCrystalGemsVoice(voiceContainer: HTMLElement, usernameContainer: HTMLElement) {
+    if (voiceContainer.querySelector("[data-fsb-cgem]")) return;
+    voiceContainer.style.position = "relative";
+    voiceContainer.style.overflow = "visible";
+
+    const gems: HTMLElement[] = [];
+    for (let i = 0; i < CRYSTAL_GEM_COUNT; i++) {
+        const gem = document.createElement("img");
+        gem.dataset.fsbCgem = String(i);
+        gem.dataset.fsbCgemVoice = "1";
+        gem.src = CRYSTAL_GEM_URL;
+        gem.alt = "💎";
+        gem.style.cssText = "position:absolute;pointer-events:none;top:50%;left:50%;";
+        gem.style.setProperty("--fountain-duration", `${1.5 + (i * 0.2)}s`);
+        gem.style.animationDelay = `${i * 0.15}s`;
+        voiceContainer.appendChild(gem);
+        gems.push(gem);
+    }
+
+    requestAnimationFrame(() => {
+        const nameDiv = usernameContainer.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]") ?? usernameContainer;
+        const vcRect = voiceContainer.getBoundingClientRect();
+        const nameRect = nameDiv.getBoundingClientRect();
+        if (vcRect.width === 0 || nameRect.width === 0) return;
+
+        const centerLeft = (nameRect.left - vcRect.left) + nameRect.width / 2;
+        const centerTop = (nameRect.top - vcRect.top) + nameRect.height / 2;
+
+        gems.forEach((gem, i) => {
+            gem.style.top = `${centerTop}px`;
+            gem.style.left = `${centerLeft}px`;
+            const angle = -90 + (i - 2.5) * 20;
+            const distance = 40 + (i % 2) * 10;
+            gem.style.setProperty("--fountain-angle", `${angle}deg`);
+            gem.style.setProperty("--fountain-distance", `${distance}px`);
+        });
+    });
+}
+
+function cleanCrystalEl(el: HTMLElement) {
+    const wrap = el.querySelector<HTMLElement>("[data-fsb-crystal-wrap]");
+    if (wrap) {
+        Array.from(wrap.childNodes).forEach(n => {
+            if (n instanceof HTMLElement && n.dataset.fsbCgem !== undefined) return;
+            el.insertBefore(n, wrap);
+        });
+        wrap.remove();
+    }
+    el.querySelectorAll("[data-fsb-cgem-voice]").forEach(s => s.remove());
+    if (el.dataset.fsbCrystalVoice) { el.style.position = ""; el.style.overflow = ""; }
+    delete el.dataset.fsbCrystal;
+    delete el.dataset.fsbCustomAnim;
+}
+
+function applyCrystalEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-crystal]").forEach(el => {
+        const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== CRYSTAL_PRIMARY_RGB) {
+            cleanCrystalEl(el);
+            const h = el.closest<HTMLElement>("span[data-fsb-crystal-header]");
+            if (h) { delete h.dataset.fsbCrystalHeader; delete h.dataset.fsbCustomAnim; }
+        }
+    });
+    document.querySelectorAll<HTMLElement>("span[data-fsb-crystal-header]").forEach(h => {
+        if (!h.querySelector("[data-fsb-crystal]")) { delete h.dataset.fsbCrystalHeader; delete h.dataset.fsbCustomAnim; }
+    });
+    document.querySelectorAll<HTMLElement>('span[class*="nameContainer"][data-fsb-gradient]:not([data-fsb-crystal])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CRYSTAL_PRIMARY_RGB) return;
+        el.dataset.fsbCrystal = "1"; el.dataset.fsbCustomAnim = "1";
+        const nameSpan = el.querySelector<HTMLElement>('span[class*="name__"]');
+        if (nameSpan && !nameSpan.querySelector("[data-fsb-crystal-wrap]")) injectCrystalGems(nameSpan);
+    });
+    document.querySelectorAll<HTMLElement>('span[class*="username_"][data-fsb-gradient]:not([data-fsb-crystal])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CRYSTAL_PRIMARY_RGB) return;
+        el.dataset.fsbCrystal = "1"; el.dataset.fsbCustomAnim = "1";
+        const h = el.closest<HTMLElement>('span[class*="headerText"]');
+        if (h) { h.dataset.fsbCrystalHeader = "1"; h.dataset.fsbCustomAnim = "1"; }
+        if (!el.querySelector("[data-fsb-crystal-wrap]")) injectCrystalGems(el);
+    });
+    document.querySelectorAll<HTMLElement>('[aria-hidden="true"][data-fsb-cat-checked]:not([data-fsb-crystal])').forEach(el => {
+        if (normalizeColor(el.style.getPropertyValue("--custom-gradient-color-1")) !== CRYSTAL_PRIMARY_RGB) return;
+        el.dataset.fsbCrystal = "1"; el.dataset.fsbCustomAnim = "1";
+    });
+    document.querySelectorAll<HTMLElement>('div[class*="usernameContainer_"][data-fsb-voice-checked]:not([data-fsb-crystal])').forEach(container => {
+        const gradDiv = container.querySelector<HTMLElement>("[data-fsb-gradient], [data-fsb-mention]");
+        const c1 = gradDiv?.style.getPropertyValue("--custom-gradient-color-1") ?? container.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== CRYSTAL_PRIMARY_RGB) return;
+        container.dataset.fsbCrystal = "1"; container.dataset.fsbCustomAnim = "1";
+        const vc = container.parentElement;
+        if (vc?.dataset.fsbVoiceContainer) {
+            vc.dataset.fsbCrystalVoice = "1"; vc.dataset.fsbCustomAnim = "1";
+            if (!vc.querySelector("[data-fsb-cgem]")) injectCrystalGemsVoice(vc, container);
+        }
+    });
+}
+
+function cleanupCrystalEffect() {
+    document.querySelectorAll<HTMLElement>("[data-fsb-crystal]").forEach(el => {
+        cleanCrystalEl(el);
+        const h = el.closest<HTMLElement>("span[data-fsb-crystal-header]");
+        if (h) { delete h.dataset.fsbCrystalHeader; delete h.dataset.fsbCustomAnim; }
+    });
+}
+
+const CRYSTAL_CSS = `
+    span[data-fsb-crystal] span[class*="name__"], span[class*="username_"][data-fsb-crystal] {
+        background-image: linear-gradient(to right, #ff5dd6, #ff9cbf, #ff5dd6) !important; background-size: 200px auto !important;
+    }
+    span[class*="username_"][data-fsb-crystal]:has([data-fsb-crystal-wrap]) { background-image: none !important; -webkit-text-fill-color: unset !important; }
+    @keyframes fsb-crystal-shimmer { 0% { background-position: -300px 50%; } 100% { background-position: 300px 50%; } }
+    div[role="article"]:hover [data-fsb-crystal-wrap], li[class*="messageListItem"]:hover [data-fsb-crystal-wrap],
+    div[class*="member__"]:hover [data-fsb-crystal-wrap], a:hover [data-fsb-crystal-wrap],
+    div[class*="voiceUser"]:hover [data-fsb-crystal-wrap] {
+        animation: fsb-crystal-shimmer 2s linear infinite !important;
+        background-image: linear-gradient(to right, #ff5dd6 0%, #ff33cc 30%, #ffd6f2 49%, #ffd6f2 51%, #ff33cc 70%, #ff5dd6 100%) !important;
+        background-size: 300px auto !important;
+    }
+    div[class*="member__"]:hover span[data-fsb-crystal], a:hover span[data-fsb-crystal], span[data-fsb-crystal]:hover { filter: drop-shadow(0 0 4px #ff5dd6) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-crystal-header],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-crystal-header] { filter: drop-shadow(0 0 4px #ff5dd6) !important; }
+    div[role="article"]:hover span[class*="headerText"][data-fsb-crystal-header] span[class*="botTag"],
+    li[class*="messageListItem"]:hover span[class*="headerText"][data-fsb-crystal-header] span[class*="botTag"] { filter: none !important; }
+    div[role="article"]:hover span[class*="username_"][data-fsb-crystal],
+    li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-crystal] { filter: none !important; }
+    div[class*="members_"]:hover div[data-fsb-crystal] { filter: drop-shadow(0 0 4px #ff5dd6) !important; }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-crystal-voice] { filter: drop-shadow(0 0 4px #ff5dd6) !important; }
+    span[class*="username_"][data-fsb-crystal], span[class*="headerText"][data-fsb-crystal-header],
+    span[class*="nameContainer"][data-fsb-crystal], span[data-fsb-crystal] span[class*="name__"] { overflow: visible !important; }
+    [data-fsb-crystal-wrap] {
+        position: relative !important; display: inline-block !important; overflow: visible !important;
+        background-image: linear-gradient(to right, #ff5dd6, #ff9cbf, #ff5dd6) !important;
+        -webkit-background-clip: text !important; background-clip: text !important;
+        -webkit-text-fill-color: transparent !important; background-size: 200px auto !important;
+    }
+    [data-fsb-cgem] {
+        position: absolute !important; display: inline-block !important; pointer-events: none !important;
+        width: 16px !important; height: 16px !important;
+        opacity: 0 !important; z-index: 999999 !important;
+        margin: -8px 0 0 -8px !important;
+        filter: drop-shadow(0 0 4px #ff5dd6) drop-shadow(0 0 2px #ff9cbf);
+        object-fit: contain !important;
+    }
+    [data-fsb-cgem-voice] { margin: -8px 0 0 -8px !important; }
+    div[class*="member__"]:hover [data-fsb-crystal-wrap] [data-fsb-cgem],
+    div[role="article"]:hover [data-fsb-crystal-wrap] [data-fsb-cgem],
+    li[class*="messageListItem"]:hover [data-fsb-crystal-wrap] [data-fsb-cgem],
+    span[data-fsb-crystal-wrap]:hover [data-fsb-cgem] {
+        opacity: 1 !important;
+        animation: fsb-crystal-fountain var(--fountain-duration, 1.8s) ease-out infinite !important;
+    }
+    div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-crystal-voice] [data-fsb-cgem-voice] {
+        opacity: 1 !important;
+        animation: fsb-crystal-fountain var(--fountain-duration, 1.8s) ease-out infinite !important;
+    }
+    @keyframes fsb-crystal-fountain {
+        0% {
+            opacity: 0;
+            transform: rotate(var(--fountain-angle, -90deg)) translateX(0px) scale(0.3);
+        }
+        15% {
+            opacity: 1;
+        }
+        75% {
+            opacity: 1;
+            transform: rotate(var(--fountain-angle, -90deg)) translateX(var(--fountain-distance, 40px)) scale(1);
+        }
+        100% {
+            opacity: 0;
+            transform: rotate(var(--fountain-angle, -90deg)) translateX(calc(var(--fountain-distance, 40px) + 5px)) scale(0.8);
+        }
     }
 `;
 
 // ── Définition de tous les effets à enregistrer ───────────────────────────────
 
 const CUSTOM_EFFECTS: CustomEffect[] = [
-    { id: "birthday",  styleCSS: BIRTHDAY_CSS,  applyFn: applyBirthdayEffect,  cleanupFn: cleanupBirthdayEffect,  primaryRGB: BIRTHDAY_PRIMARY_RGB },
-    { id: "netricsa",  styleCSS: NETRICSA_CSS,  applyFn: applyNetricsaEffect,  cleanupFn: cleanupNetricsaEffect,  primaryRGB: NETRICSA_PRIMARY_RGB },
+    { id: "birthday", styleCSS: BIRTHDAY_CSS, applyFn: applyBirthdayEffect, cleanupFn: cleanupBirthdayEffect, primaryRGB: BIRTHDAY_PRIMARY_RGB },
+    { id: "netricsa", styleCSS: NETRICSA_CSS, applyFn: applyNetricsaEffect, cleanupFn: cleanupNetricsaEffect, primaryRGB: NETRICSA_PRIMARY_RGB },
     {
         id: "medals",
         styleCSS: MEDALS_CSS,
@@ -1412,6 +1755,7 @@ const CUSTOM_EFFECTS: CustomEffect[] = [
         cleanupFn: () => { for (const def of SIMPLE_EFFECT_DEFS) makeSimpleCleanup(def)(); },
     },
     { id: "celestial", styleCSS: CELESTIAL_CSS, applyFn: applyCelestialEffect, cleanupFn: cleanupCelestialEffect, primaryRGB: CELESTIAL_PRIMARY_RGB },
+    { id: "crystal", styleCSS: CRYSTAL_CSS, applyFn: applyCrystalEffect, cleanupFn: cleanupCrystalEffect, primaryRGB: CRYSTAL_PRIMARY_RGB },
 ];
 
 // ── Fonds de channel (DynamicChannelBackground) ───────────────────────────────
@@ -1474,8 +1818,8 @@ const GUILD_BGS: Record<string, string> = {
 export default definePlugin({
     name: "The Not So Serious Cord",
     description: "Apply custom colors to specific bots' messages and names with configurable intensity",
-    authors: [Devs.IAmSympathy],
-    dependencies: ["Fake Server Boost Level 2", "DynamicChannelBackgrounds"],
+    authors: [Devs.Ven],
+    dependencies: ["Fake Server Boost Level 2", "DynamicChannelBackground"],
     settings,
 
     start() {
