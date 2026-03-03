@@ -687,6 +687,9 @@ function cleanBirthdayEl(el: HTMLElement) {
 }
 
 function applyBirthdayEffect() {
+    // Appliquer les gradients aux mentions de rôle en premier
+    applyGradientsToRoleMentions();
+
     // Nettoyage
     document.querySelectorAll<HTMLElement>("span[data-fsb-birthday]").forEach(el => {
         const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
@@ -811,6 +814,12 @@ function applyBirthdayEffect() {
             else gradDiv.append(starR);
         }
     });
+    // Mentions utilisateur et mentions de rôle avec couleur Birthday
+    document.querySelectorAll<HTMLElement>("span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-birthday])").forEach(mention => {
+        const c1 = mention.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== BIRTHDAY_PRIMARY_RGB) return;
+        mention.dataset.fsbBirthday = "1"; mention.dataset.fsbCustomAnim = "1";
+    });
 }
 
 function cleanupBirthdayEffect() {
@@ -883,11 +892,48 @@ const BIRTHDAY_CSS = `
         from { opacity: 1; transform: scale(1.15) rotate(-15deg); }
         to   { opacity: 1; transform: scale(0.85) rotate(15deg); }
     }
+    /* Mentions utilisateur et mentions de rôle avec Birthday - Hover du message */
+    span[data-fsb-mention][data-fsb-birthday][data-fsb-hover-anim] span[data-fsb-mention-text] {
+        animation: fsb-bday-scroll 0.65s linear infinite !important;
+        background-image: linear-gradient(to right, #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095) !important;
+        background-size: 300px auto !important;
+        filter: drop-shadow(0 0 3px #ff0095) drop-shadow(0 0 1px #ff66cc);
+    }
+    span[data-fsb-mention][data-fsb-birthday][data-fsb-hover-anim] img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-birthday][data-fsb-hover-anim] img.vc-mentionAvatars-role-icon {
+        animation: fsb-bday-star-pop 1.3s ease-in-out infinite alternate !important;
+    }
+    span[data-fsb-mention][data-fsb-birthday][data-fsb-hover-anim] .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 3px #ff0095) drop-shadow(0 0 1px #ff66cc) !important;
+    }
+    span[data-fsb-mention][data-fsb-birthday][data-fsb-hover-anim]:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 3px #ff0095) drop-shadow(0 0 1px #ff66cc) !important;
+    }
+    /* Mentions Birthday - Hover direct sur la mention */
+    span[data-fsb-mention][data-fsb-birthday]:hover span[data-fsb-mention-text] {
+        animation: fsb-bday-scroll 0.65s linear infinite !important;
+        background-image: linear-gradient(to right, #ff0095, #ff66cc, #b40069, #ff66cc, #ff0095) !important;
+        background-size: 300px auto !important;
+        filter: drop-shadow(0 0 3px #ff0095) drop-shadow(0 0 1px #ff66cc);
+    }
+    span[data-fsb-mention][data-fsb-birthday]:hover img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-birthday]:hover img.vc-mentionAvatars-role-icon {
+        animation: fsb-bday-star-pop 1.3s ease-in-out infinite alternate !important;
+    }
+    span[data-fsb-mention][data-fsb-birthday]:hover .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 3px #ff0095) drop-shadow(0 0 1px #ff66cc) !important;
+    }
+    span[data-fsb-mention][data-fsb-birthday]:hover:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 3px #ff0095) drop-shadow(0 0 1px #ff66cc) !important;
+    }
 `;
 
 // ── 🧠 NETRICSA ───────────────────────────────────────────────────────────────
 
 function applyNetricsaEffect() {
+    // Appliquer les gradients aux mentions de rôle en premier
+    applyGradientsToRoleMentions();
+
     document.querySelectorAll<HTMLElement>("[data-fsb-netricsa]").forEach(el => {
         const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
         if (!c1 || normalizeColor(c1) !== NETRICSA_PRIMARY_RGB) {
@@ -1052,8 +1098,8 @@ const NETRICSA_CSS = `
         animation: fsb-netricsa-pulse 3.5s ease-in-out infinite !important;
     }
     /* Mentions utilisateur et mentions de rôle avec Netricsa */
-    /* Animation au hover du MESSAGE (via data-fsb-hover-anim posé par JS) */
-    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] span[data-fsb-mention-text] {
+    /* Animation au hover DIRECT de la mention */
+    span[data-fsb-mention][data-fsb-netricsa]:hover span[data-fsb-mention-text] {
         animation: fsb-netricsa-scan 3.5s linear infinite !important;
         background-image: linear-gradient(to right,
             var(--custom-gradient-color-1) 0%,
@@ -1065,20 +1111,20 @@ const NETRICSA_CSS = `
             var(--custom-gradient-color-2) 53%,
             var(--custom-gradient-color-1) 100%) !important;
         background-size: 350px auto !important;
-        filter: drop-shadow(0 0 3px #2494db) drop-shadow(0 0 6px rgba(36, 148, 219, 0.4));
+        filter: drop-shadow(0 0 1.5px #2494db) drop-shadow(0 0 3px rgba(36, 148, 219, 0.4));
     }
     /* Icônes de rôle uniquement (pas les avatars utilisateur) */
-    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] img[data-fsb-role-icon-wrapped],
-    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] img.vc-mentionAvatars-role-icon {
+    span[data-fsb-mention][data-fsb-netricsa]:hover img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-netricsa]:hover img.vc-mentionAvatars-role-icon {
         animation: fsb-netricsa-pulse 3.5s ease-in-out infinite !important;
     }
     /* Glow via le conteneur parent pour mentions utilisateur */
-    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim] .vc-mentionAvatars-container {
-        filter: drop-shadow(0 0 4px #2494db) drop-shadow(0 0 8px rgba(36, 148, 219, 0.4)) !important;
+    span[data-fsb-mention][data-fsb-netricsa]:hover .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 2px #2494db) drop-shadow(0 0 4px rgba(36, 148, 219, 0.4)) !important;
     }
     /* Glow direct pour mentions de rôle sans conteneur */
-    span[data-fsb-mention][data-fsb-netricsa][data-fsb-hover-anim]:not(:has(.vc-mentionAvatars-container)) {
-        filter: drop-shadow(0 0 4px #2494db) drop-shadow(0 0 8px rgba(36, 148, 219, 0.4)) !important;
+    span[data-fsb-mention][data-fsb-netricsa]:hover:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 2px #2494db) drop-shadow(0 0 4px rgba(36, 148, 219, 0.4)) !important;
     }
 `;
 
@@ -1094,6 +1140,9 @@ const SIMPLE_EFFECT_DEFS: SimpleEffectDef[] = [
 
 function makeSimpleApply(def: SimpleEffectDef) {
     return function () {
+        // Appliquer les gradients aux mentions de rôle en premier
+        applyGradientsToRoleMentions();
+
         const attrStr = def.dataKey.replace(/([A-Z])/g, m => `-${m.toLowerCase()}`).replace(/^fsb/, "data-fsb");
         const selector = `[${attrStr}]`;
         document.querySelectorAll<HTMLElement>(selector).forEach(el => {
@@ -1126,6 +1175,12 @@ function makeSimpleApply(def: SimpleEffectDef) {
             (container.dataset as any)[def.dataKey] = "1"; container.dataset.fsbCustomAnim = "1";
             const vc = container.parentElement;
             if (vc?.dataset.fsbVoiceContainer) { (vc.dataset as any)[def.voiceKey] = "1"; vc.dataset.fsbCustomAnim = "1"; }
+        });
+        // Mentions utilisateur et mentions de rôle
+        document.querySelectorAll<HTMLElement>(`span[data-fsb-mention][data-fsb-gradient]:not(${selector})`).forEach(mention => {
+            const c1 = mention.style.getPropertyValue("--custom-gradient-color-1");
+            if (!c1 || normalizeColor(c1) !== def.rgb) return;
+            (mention.dataset as any)[def.dataKey] = "1"; mention.dataset.fsbCustomAnim = "1";
         });
     };
 }
@@ -1222,6 +1277,57 @@ const MEDALS_CSS = `
     li[class*="messageListItem"]:hover span[class*="username_"][data-fsb-bronze] { filter: none !important; }
     div[class*="members_"]:hover div[data-fsb-bronze] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
     div[class*="voiceUser"]:hover [data-fsb-voice-container][data-fsb-bronze-voice] { filter: drop-shadow(0 0 3px #d08a4a) !important; }
+    /* Mentions utilisateur et mentions de rôle avec Golden - Hover direct */
+    span[data-fsb-mention][data-fsb-golden]:hover span[data-fsb-mention-text] {
+        animation: fsb-golden-shimmer 1.2s linear infinite !important;
+        background-image: linear-gradient(to right, #bf9b30 0%, #c8a435 30%, #ffffff 49%, #ffffff 51%, #c8a435 70%, #bf9b30 100%) !important;
+        background-size: 300px auto !important;
+        filter: drop-shadow(0 0 1.5px #f7d774);
+    }
+    span[data-fsb-mention][data-fsb-golden]:hover img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-golden]:hover img.vc-mentionAvatars-role-icon {
+        filter: drop-shadow(0 0 1.5px #f7d774) !important;
+    }
+    span[data-fsb-mention][data-fsb-golden]:hover .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 1.5px #f7d774) !important;
+    }
+    span[data-fsb-mention][data-fsb-golden]:hover:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 1.5px #f7d774) !important;
+    }
+    /* Mentions utilisateur et mentions de rôle avec Silver - Hover direct */
+    span[data-fsb-mention][data-fsb-silver]:hover span[data-fsb-mention-text] {
+        animation: fsb-silver-shimmer 1.45s linear infinite !important;
+        background-image: linear-gradient(to right, #c0c0c0 0%, #d0d0d0 30%, #ffffff 49%, #ffffff 51%, #d0d0d0 70%, #c0c0c0 100%) !important;
+        background-size: 300px auto !important;
+        filter: drop-shadow(0 0 1.5px #f2f2f2);
+    }
+    span[data-fsb-mention][data-fsb-silver]:hover img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-silver]:hover img.vc-mentionAvatars-role-icon {
+        filter: drop-shadow(0 0 1.5px #f2f2f2) !important;
+    }
+    span[data-fsb-mention][data-fsb-silver]:hover .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 1.5px #f2f2f2) !important;
+    }
+    span[data-fsb-mention][data-fsb-silver]:hover:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 1.5px #f2f2f2) !important;
+    }
+    /* Mentions utilisateur et mentions de rôle avec Bronze - Hover direct */
+    span[data-fsb-mention][data-fsb-bronze]:hover span[data-fsb-mention-text] {
+        animation: fsb-bronze-shimmer 1.8s linear infinite !important;
+        background-image: linear-gradient(to right, #a05822 0%, #b86a30 30%, #f0c080 49%, #f0c080 51%, #b86a30 70%, #a05822 100%) !important;
+        background-size: 300px auto !important;
+        filter: drop-shadow(0 0 1.5px #d08a4a);
+    }
+    span[data-fsb-mention][data-fsb-bronze]:hover img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-bronze]:hover img.vc-mentionAvatars-role-icon {
+        filter: drop-shadow(0 0 1.5px #d08a4a) !important;
+    }
+    span[data-fsb-mention][data-fsb-bronze]:hover .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 1.5px #d08a4a) !important;
+    }
+    span[data-fsb-mention][data-fsb-bronze]:hover:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 1.5px #d08a4a) !important;
+    }
 `;
 
 // ── 🔮 CELESTIAL ─────────────────────────────────────────────────────────────
@@ -1391,6 +1497,9 @@ function cleanCelestialEl(el: HTMLElement) {
 }
 
 function applyCelestialEffect() {
+    // Appliquer les gradients aux mentions de rôle en premier
+    applyGradientsToRoleMentions();
+
     document.querySelectorAll<HTMLElement>("[data-fsb-celestial]").forEach(el => {
         const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
         if (!c1 || normalizeColor(c1) !== CELESTIAL_PRIMARY_RGB) {
@@ -1429,6 +1538,12 @@ function applyCelestialEffect() {
             vc.dataset.fsbCelestialVoice = "1"; vc.dataset.fsbCustomAnim = "1";
             if (!vc.querySelector("[data-fsb-cstar]")) injectCelestialStarsVoice(vc, container);
         }
+    });
+    // Mentions utilisateur et mentions de rôle avec Celestial
+    document.querySelectorAll<HTMLElement>("span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-celestial])").forEach(mention => {
+        const c1 = mention.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== CELESTIAL_PRIMARY_RGB) return;
+        mention.dataset.fsbCelestial = "1"; mention.dataset.fsbCustomAnim = "1";
     });
 }
 
@@ -1523,6 +1638,23 @@ const CELESTIAL_CSS = `
     }
             transform: translate(var(--star-x1, 0px), var(--star-y1, 0px)) scale(0.3);
         }
+    }
+    /* Mentions utilisateur et mentions de rôle avec Celestial - Hover direct */
+    span[data-fsb-mention][data-fsb-celestial]:hover span[data-fsb-mention-text] {
+        animation: fsb-celestial-shimmer 2s linear infinite !important;
+        background-image: linear-gradient(to right, #a855f7 0%, #9333ea 30%, #e9d5ff 49%, #e9d5ff 51%, #9333ea 70%, #a855f7 100%) !important;
+        background-size: 300px auto !important;
+        filter: drop-shadow(0 0 2px #a855f7);
+    }
+    span[data-fsb-mention][data-fsb-celestial]:hover img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-celestial]:hover img.vc-mentionAvatars-role-icon {
+        filter: drop-shadow(0 0 2px #a855f7) !important;
+    }
+    span[data-fsb-mention][data-fsb-celestial]:hover .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 2px #a855f7) !important;
+    }
+    span[data-fsb-mention][data-fsb-celestial]:hover:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 2px #a855f7) !important;
     }
 `;
 
@@ -1625,6 +1757,9 @@ function cleanCrystalEl(el: HTMLElement) {
 }
 
 function applyCrystalEffect() {
+    // Appliquer les gradients aux mentions de rôle en premier
+    applyGradientsToRoleMentions();
+
     document.querySelectorAll<HTMLElement>("[data-fsb-crystal]").forEach(el => {
         const c1 = el.style.getPropertyValue("--custom-gradient-color-1");
         if (!c1 || normalizeColor(c1) !== CRYSTAL_PRIMARY_RGB) {
@@ -1663,6 +1798,12 @@ function applyCrystalEffect() {
             vc.dataset.fsbCrystalVoice = "1"; vc.dataset.fsbCustomAnim = "1";
             if (!vc.querySelector("[data-fsb-cgem]")) injectCrystalGemsVoice(vc, container);
         }
+    });
+    // Mentions utilisateur et mentions de rôle avec Crystal
+    document.querySelectorAll<HTMLElement>("span[data-fsb-mention][data-fsb-gradient]:not([data-fsb-crystal])").forEach(mention => {
+        const c1 = mention.style.getPropertyValue("--custom-gradient-color-1");
+        if (!c1 || normalizeColor(c1) !== CRYSTAL_PRIMARY_RGB) return;
+        mention.dataset.fsbCrystal = "1"; mention.dataset.fsbCustomAnim = "1";
     });
 }
 
@@ -1741,7 +1882,103 @@ const CRYSTAL_CSS = `
             transform: rotate(var(--fountain-angle, -90deg)) translateX(calc(var(--fountain-distance, 40px) + 5px)) scale(0.8);
         }
     }
+    /* Mentions utilisateur et mentions de rôle avec Crystal */
+    /* Animation au hover DIRECT de la mention */
+    span[data-fsb-mention][data-fsb-crystal]:hover span[data-fsb-mention-text] {
+        animation: fsb-crystal-shimmer 2s linear infinite !important;
+        background-image: linear-gradient(to right, #ff5dd6 0%, #ff33cc 30%, #ffd6f2 49%, #ffd6f2 51%, #ff33cc 70%, #ff5dd6 100%) !important;
+        background-size: 300px auto !important;
+        filter: drop-shadow(0 0 2px #ff5dd6);
+    }
+    span[data-fsb-mention][data-fsb-crystal]:hover img[data-fsb-role-icon-wrapped],
+    span[data-fsb-mention][data-fsb-crystal]:hover img.vc-mentionAvatars-role-icon {
+        filter: drop-shadow(0 0 2px #ff5dd6) !important;
+    }
+    span[data-fsb-mention][data-fsb-crystal]:hover .vc-mentionAvatars-container {
+        filter: drop-shadow(0 0 2px #ff5dd6) !important;
+    }
+    span[data-fsb-mention][data-fsb-crystal]:hover:not(:has(.vc-mentionAvatars-container)) {
+        filter: drop-shadow(0 0 2px #ff5dd6) !important;
+    }
 `;
+
+// ── Appliquer les gradients aux mentions de rôle ─────────────────────────────
+
+/** Wrappe les nœuds texte dans un span avec gradient pour les mentions */
+function wrapMentionTextNodes(node: Node, g: { primary: string; secondary: string; tertiary: string; }) {
+    if (node.nodeType === Node.TEXT_NODE) {
+        if (!(node.textContent ?? "").trim()) return;
+        if ((node.parentElement as HTMLElement | null)?.dataset?.fsbMentionText) return;
+        const wrapper = document.createElement("span");
+        wrapper.dataset.fsbMentionText = "1";
+        wrapper.style.setProperty("--custom-gradient-color-1", g.primary);
+        wrapper.style.setProperty("--custom-gradient-color-2", g.secondary);
+        wrapper.style.setProperty("--custom-gradient-color-3", g.tertiary);
+        node.parentNode!.insertBefore(wrapper, node);
+        wrapper.appendChild(node);
+        return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as HTMLElement;
+    if (el.tagName === "IMG" || el.tagName === "SVG" || el.dataset.fsbMentionText) return;
+    for (const child of Array.from(el.childNodes)) {
+        wrapMentionTextNodes(child, g);
+    }
+}
+
+/**
+ * Applique les gradients aux mentions de rôle qui ont une couleur hardcodée.
+ * Cette fonction doit être appelée APRÈS que fakeServerBoost ait fait son premier scan,
+ * car fakeServerBoost ne traite pas les mentions de rôle (elles contiennent des images SVG).
+ */
+function applyGradientsToRoleMentions() {
+    // Trouver toutes les mentions de rôle qui n'ont pas encore été traitées
+    document.querySelectorAll<HTMLElement>("span[class*=\"roleMention\"]:not([data-fsb-mention])").forEach(mention => {
+        // Extraire le nom du rôle depuis le texte
+        const roleNameSpan = mention.querySelector("span > span");
+        if (!roleNameSpan) return;
+        const roleName = roleNameSpan.textContent?.replace("@", "").trim();
+        if (!roleName) return;
+
+        // Chercher le rôle correspondant dans HARDCODED_ROLE_COLORS
+        let roleData: RoleColorData | null = null;
+        let roleId: string | null = null;
+
+        for (const [id, data] of Object.entries(HARDCODED_ROLE_COLORS)) {
+            // On ne peut pas matcher par nom car on n'a pas accès au GuildRoleStore ici
+            // On va devoir se baser sur la couleur inline de la mention
+            const inlineColor = mention.style.color;
+            if (!inlineColor) continue;
+
+            // Normaliser la couleur inline pour comparer
+            const normalized = normalizeColor(inlineColor);
+            const primaryNormalized = data.colorStrings?.primaryColor ? normalizeColor(data.colorStrings.primaryColor) : null;
+
+            if (normalized === primaryNormalized) {
+                roleData = data;
+                roleId = id;
+                break;
+            }
+        }
+
+        if (!roleData || !roleData.colorStrings?.secondaryColor) return;
+
+        // Appliquer les CSS vars de gradient
+        mention.style.setProperty("--custom-gradient-color-1", roleData.colorStrings.primaryColor!);
+        mention.style.setProperty("--custom-gradient-color-2", roleData.colorStrings.secondaryColor);
+        mention.style.setProperty("--custom-gradient-color-3", roleData.colorStrings.tertiaryColor ?? roleData.colorStrings.primaryColor!);
+        mention.dataset.fsbMention = "1";
+        mention.dataset.fsbGradient = "1";
+
+        // Wrapper les nœuds texte pour qu'ils aient le gradient
+        const g = {
+            primary: roleData.colorStrings.primaryColor!,
+            secondary: roleData.colorStrings.secondaryColor,
+            tertiary: roleData.colorStrings.tertiaryColor ?? roleData.colorStrings.primaryColor!
+        };
+        wrapMentionTextNodes(mention, g);
+    });
+}
 
 // ── Définition de tous les effets à enregistrer ───────────────────────────────
 
