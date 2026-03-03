@@ -433,10 +433,10 @@ function ensureGradientStyle() {
             background-size: 200px auto !important;
             transition: filter 0.15s ease;
         }
-        /* Animation du texte au hover */
-        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) span[data-fsb-mention-text] {
+        /* Animation du texte au hover DIRECT de la mention (pas du message) */
+        span[data-fsb-mention]:not([data-fsb-custom-anim]):hover span[data-fsb-mention-text] {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
-            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
+            filter: drop-shadow(0 0 1.5px var(--custom-gradient-color-1)) !important;
         }
         /* Animation des icônes de rôle (injectées et natives) au hover */
         span[data-fsb-mention]:not([data-fsb-custom-anim]) img[data-fsb-role-icon-wrapped],
@@ -444,18 +444,18 @@ function ensureGradientStyle() {
             transition: opacity 0.15s ease;
         }
         /* Glow sur le conteneur parent pour éviter de perturber le filtre de l'icône */
-        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) img[data-fsb-role-icon-wrapped],
-        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) img.vc-mentionAvatars-role-icon {
+        span[data-fsb-mention]:not([data-fsb-custom-anim]):hover img[data-fsb-role-icon-wrapped],
+        span[data-fsb-mention]:not([data-fsb-custom-anim]):hover img.vc-mentionAvatars-role-icon {
             animation: fsb-gradient-scroll 1.5s linear infinite !important;
             opacity: 1 !important;
         }
         /* Appliquer le glow via le conteneur parent (vc-mentionAvatars-container) pour mentions utilisateur */
-        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]) .vc-mentionAvatars-container {
-            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
+        span[data-fsb-mention]:not([data-fsb-custom-anim]):hover .vc-mentionAvatars-container {
+            filter: drop-shadow(0 0 1.5px var(--custom-gradient-color-1)) !important;
         }
         /* Pour les mentions de rôle qui n'ont pas de conteneur, appliquer directement sur la mention */
-        span[data-fsb-mention][data-fsb-hover-anim]:not([data-fsb-custom-anim]):not(:has(.vc-mentionAvatars-container)) {
-            filter: drop-shadow(0 0 3px var(--custom-gradient-color-1)) !important;
+        span[data-fsb-mention]:not([data-fsb-custom-anim]):hover:not(:has(.vc-mentionAvatars-container)) {
+            filter: drop-shadow(0 0 1.5px var(--custom-gradient-color-1)) !important;
         }
 
         /* ══════════════════════════════════════════════
@@ -932,8 +932,8 @@ function buildHoverGroup(root: HTMLElement): HoverGroup {
     }
 
     // Mentions : animer le texte et l'icône au hover du message
-    // Inclure les mentions normales ET les mentions avec animations custom
-    const mentions = root.querySelectorAll<HTMLElement>("[data-fsb-mention]");
+    // Exclure les mentions avec animations custom (elles ont leur propre hover direct)
+    const mentions = root.querySelectorAll<HTMLElement>("[data-fsb-mention]:not([data-fsb-custom-anim])");
     mentions.forEach(mention => {
         markerEls.push(mention);
         mention.querySelectorAll<HTMLElement>("[data-fsb-mention-text]").forEach(e => textEls.push(e));
