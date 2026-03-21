@@ -205,6 +205,12 @@ const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
     },
     // Nexa 🎵 (bot)
     "1475717569200783382": {
+        colorStrings: { primaryColor: "#dbd1a0", secondaryColor: "#A8975F", tertiaryColor: undefined },
+        colors: { primary_color: 10822875, secondary_color: 5842064, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Milton (bot)
+    "1482107544980815922": {
         colorStrings: { primaryColor: "#a524db", secondaryColor: "#592490", tertiaryColor: undefined },
         colors: { primary_color: 10822875, secondary_color: 5842064, tertiary_color: undefined },
         displayNameStyles: null,
