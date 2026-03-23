@@ -21,7 +21,14 @@ import bgSaratogaB64 from "file://./assets/BGs/Channels/Saratoga.png?base64";
 import bgSiberiaB64 from "file://./assets/BGs/Channels/Siberia.jpg?base64";
 import bgSiriusB64 from "file://./assets/BGs/Channels/Sirius.jpg?base64";
 import bgSSSCenterpriceB64 from "file://./assets/BGs/Channels/SSSCenterprice.jpg?base64";
-import bgTNSSLB64 from "file://./assets/BGs/Servers/TNSSL.jpg?base64";
+import bgCountrysideB64 from "file://./assets/BGs/Channels/Countryside.jpg?base64";
+import bgGiantJunkyardB64 from "file://./assets/BGs/Channels/GiantJunkyard.jpg?base64";
+import bgNexaB64 from "file://./assets/BGs/Channels/Nexa.png?base64";
+import bgSierraDeChiapasB64 from "file://./assets/BGs/Channels/SierraDeChiapas.jpg?base64";
+import bgTNSSSMPB64 from "file://./assets/BGs/Channels/TNSS-SMP2.png?base64";
+import bgTNSSSMPBridgeB64 from "file://./assets/BGs/Channels/TNSS-SMP2-bridge.png?base64";
+import bgTNSSLB64 from "file://./assets/BGs/Servers/TNSSL-Spring.jpg?base64";
+import bgTreetopsB64 from "file://./assets/BGs/Channels/Treetops.jpg?base64";
 import crystalGemB64 from "file://./assets/crystal-gem.webp?base64";
 
 import {
@@ -198,6 +205,12 @@ const HARDCODED_ROLE_COLORS: Record<string, RoleColorData> = {
     },
     // Nexa 🎵 (bot)
     "1475717569200783382": {
+        colorStrings: { primaryColor: "#dbd1a0", secondaryColor: "#A8975F", tertiaryColor: undefined },
+        colors: { primary_color: 10822875, secondary_color: 5842064, tertiary_color: undefined },
+        displayNameStyles: null,
+    },
+    // Milton (bot)
+    "1482107544980815922": {
         colorStrings: { primaryColor: "#a524db", secondaryColor: "#592490", tertiaryColor: undefined },
         colors: { primary_color: 10822875, secondary_color: 5842064, tertiary_color: undefined },
         displayNameStyles: null,
@@ -2009,6 +2022,13 @@ const BG_SIBERIA = bgSiberiaB64 ? `data:image/jpeg;base64,${bgSiberiaB64}` : "";
 const BG_SARATOGA = bgSaratogaB64 ? `data:image/png;base64,${bgSaratogaB64}` : "";
 const BG_SIRIUS = bgSiriusB64 ? `data:image/jpeg;base64,${bgSiriusB64}` : "";
 const BG_SSS_CENTERPRICE = bgSSSCenterpriceB64 ? `data:image/jpeg;base64,${bgSSSCenterpriceB64}` : "";
+const BG_GiantJunkyard = bgGiantJunkyardB64 ? `data:image/jpeg;base64,${bgGiantJunkyardB64}` : "";
+const BG_Countryside = bgCountrysideB64 ? `data:image/jpeg;base64,${bgCountrysideB64}` : "";
+const BG_SierraDeChiapas = bgSierraDeChiapasB64 ? `data:image/jpeg;base64,${bgSierraDeChiapasB64}` : "";
+const BG_Nexa = bgNexaB64 ? `data:image/jpeg;base64,${bgNexaB64}` : "";
+const BG_Treetops = bgTreetopsB64 ? `data:image/jpeg;base64,${bgTreetopsB64}` : "";
+const BG_TNSSMP2 = bgTNSSSMPB64 ? `data:image/jpeg;base64,${bgTNSSSMPB64}` : "";
+const BG_TNSSMP2_Bridge = bgTNSSSMPBridgeB64 ? `data:image/jpeg;base64,${bgTNSSSMPBridgeB64}` : "";
 
 const CHANNEL_BGS: Record<string, string> = {
     "1470500922726809600": BG_SARATOGA, // #saratoga
@@ -2021,17 +2041,17 @@ const CHANNEL_BGS: Record<string, string> = {
     "1159632067072630794": BG_SARATOGA, // #saratoga
     "1159553247158214737": BG_SARATOGA, // #saratoga
 
-    "1174901601757040700": BG_LAND_DAMNED, // #land-of-the-damned
-    "1278197210470944828": BG_FROSTPOST, // #frostpost
-    "1025941810499039272": BG_OIL_RIG, // #oil-rig
-    "829527572374224916": BG_SIBERIA, // #siberia
+    "1174901601757040700": BG_SierraDeChiapas, // #land-of-the-damned
+    "1278197210470944828": BG_GiantJunkyard, // #frostpost
+    "1025941810499039272": BG_Treetops , // #oil-rig
+    "829527572374224916": BG_Countryside, // #siberia
 
     "1468019853108711474": BG_NETRICSA, // #netricsa
     "1464063041950974125": BG_NETRICSA, // #netricsa
     "1469605945687408732": BG_NETRICSA, // #netricsa
     "1470245567392383019": BG_NETRICSA, // #netricsa
     "829523675594096650": BG_NETRICSA, // #netricsa
-    "1472390304962445352": BG_NETRICSA, // #netricsa
+    "1472390304962445352": BG_Nexa, // #netricsa
 
     "1442594973643178004": BG_SIRIUS, // #sirius
     "1468008008570241130": BG_KRONOR, // #kronor
@@ -2040,6 +2060,11 @@ const CHANNEL_BGS: Record<string, string> = {
     "1466219791025963245": BG_SIRIUS, // #sirius
     "1129450972146573431": BG_SSS_CENTERPRICE, // #sss-centerprice
     "1159549877563445330": BG_MENTAL_INST, // #mental-institution
+
+    "1481901329696817272": BG_TNSSMP2,
+    "1481900902024482998": BG_TNSSMP2_Bridge,
+    "1481902621005713530": BG_TNSSMP2,
+
 };
 
 // Fond par serveur (sidebar via DynamicChannelBackground)

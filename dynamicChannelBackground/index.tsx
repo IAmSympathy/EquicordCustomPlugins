@@ -449,7 +449,7 @@ function updateVoiceBg() {
     }
 
     const size = (backgroundSize as string) ?? "cover";
-    const alphaDark = Math.min(Math.max(((overlayOpacity ?? 20) / 100) * 1.5, 0.75), 0.92).toFixed(3);
+    const alphaDark = Math.min(Math.max(((overlayOpacity ?? 20) / 100) * 1.5, 0.6), 0.92).toFixed(3);
 
     voiceStyleEl.textContent = `
         [class*="callContainer_"] {
