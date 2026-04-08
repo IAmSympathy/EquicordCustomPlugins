@@ -2081,7 +2081,7 @@ export default definePlugin({
     name: "The Not So Serious Cord",
     description: "Apply custom colors to specific bots' messages and names with configurable intensity",
     authors: [Devs.Ven],
-    dependencies: ["Fake Server Boost Level 2", "DynamicChannelBackground"],
+    dependencies: ["Fake Server Boost Level 2", "DynamicChannelBackground", "AnimatedMediaFocusPause"],
     settings,
 
     start() {
