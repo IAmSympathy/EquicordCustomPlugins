@@ -942,11 +942,11 @@ patches: [
     group: true,
     replacement: [
         {
-            match: /return.{1,150},(?=keyboardModeEnabled)/,
+            match: /return.{1,260},(?=keyboardModeEnabled)/,
             replace: "const vcDynBgState=$self.WallpaperState(arguments[0].channel);$&vcDynBgState,",
         },
         {
-            match: /}\)]}\)](?=.{1,30}messages-)/,
+            match: /}\)]}\)](?=.{1,160}messages?[-_])/,
             replace: "$&.toSpliced(0,0,$self.Wallpaper(this.props.vcDynBgState??{}))",
         },
     ],
