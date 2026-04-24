@@ -240,6 +240,8 @@ function updateChatExtBg() {
                 background: transparent !important;
                 background-color: transparent !important;
                 overflow: hidden !important;
+                transform: none !important;
+                will-change: auto !important;
             }
             [class*="chat_"] [class*="messagesWrapper_"]::before {
                 content: "";
@@ -268,6 +270,8 @@ function updateChatExtBg() {
                 z-index: 1;
                 background: transparent !important;
                 background-color: transparent !important;
+                transform: none !important;
+                will-change: auto !important;
             }
 
             section[aria-label="En-tête du salon"],
@@ -449,6 +453,8 @@ function updateChatExtBg() {
             position: relative !important;
             background: transparent !important;
             overflow: hidden !important;
+            transform: none !important;
+            will-change: auto !important;
         }
         [class*="messagesWrapper_"]::before {
             content: "";
@@ -477,6 +483,8 @@ function updateChatExtBg() {
             background: transparent !important;
             position: relative;
             z-index: 1;
+            transform: none !important;
+            will-change: auto !important;
         }
         [class*="scrollerContent_"] {
             background: transparent !important;
