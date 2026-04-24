@@ -191,24 +191,26 @@ function updateChatExtBg() {
     if (!channel) { removeChatExtBg(); return; }
 
     // ── Cas vocal : le fond est géré par la div fixée du body (updateVoiceBg) ──
-    // On rend simplement le panneau chat transparent pour laisser voir cette image.
     let isVoiceChat = false;
+    let voiceParentId: string | undefined;
     if (channel.type === 2 || channel.type === 13) {
         isVoiceChat = true;
-    } else if (channel.type === 11 || channel.type === 12) {
+        voiceParentId = channel.id;
+    } else {
         const parentId = (channel as any).parent_id;
         if (parentId) {
             const parent = ChannelStore.getChannel(parentId);
             if (parent && (parent.type === 2 || parent.type === 13)) {
                 isVoiceChat = true;
+                voiceParentId = parentId;
             }
         }
     }
 
     if (isVoiceChat) {
-        const vocalId = channel.type === 2 || channel.type === 13
+        const vocalId = voiceParentId ?? (channel.type === 2 || channel.type === 13
             ? channel.id
-            : (channel as any).parent_id;
+            : (channel as any).parent_id);
         const vocalChannel = ChannelStore.getChannel(vocalId);
         const voiceUrl = vocalId ? DynBgStore.getUrlForChannel(vocalId, vocalChannel?.guild_id) : undefined;
         if (!voiceUrl) { removeChatExtBg(); return; }
@@ -226,6 +228,67 @@ function updateChatExtBg() {
 
         chatExtStyleEl.textContent = `
             div[class*="children_"]::after { display: none !important; }
+
+            /* ── Chat vocal intégré: appliquer le fond directement sur la zone messages ── */
+            [class*="chat_"] [class*="chatContent_"] {
+                position: relative !important;
+                background: transparent !important;
+                background-color: transparent !important;
+            }
+            [class*="chat_"] [class*="messagesWrapper_"] {
+                position: relative !important;
+                background: transparent !important;
+                background-color: transparent !important;
+                overflow: hidden !important;
+            }
+            [class*="chat_"] [class*="messagesWrapper_"]::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background-image: url(${voiceUrl});
+                background-size: ${size};
+                background-position: center center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                z-index: 0;
+                pointer-events: none;
+            }
+            [class*="chat_"] [class*="messagesWrapper_"]::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background: rgba(${r},${g},${b},${alpha});
+                z-index: 0;
+                pointer-events: none;
+            }
+            [class*="chat_"] [class*="managedReactiveScroller_"],
+            [class*="chat_"] [class*="scrollerBase_"],
+            [class*="chat_"] [class*="scrollerContent_"] {
+                position: relative;
+                z-index: 1;
+                background: transparent !important;
+                background-color: transparent !important;
+            }
+
+            section[aria-label="En-tête du salon"],
+            section[class*="container__"][class*="themed__"],
+            div[class*="chat_"],
+            section[class*="chatContent_"],
+            div[class*="messagesWrapper_"],
+            div[class*="scroller_"],
+            div[class*="scrollerContent_"],
+            ol[class*="scrollerInner_"],
+            div[class*="chatGradient_"],
+            form[class*="form_"],
+            div[class*="channelBottomBarArea_"],
+            div[class*="scrollableContainer_"],
+            div[class*="themedBackground_"],
+            div[class*="textArea_"],
+            div[class*="inner_"] {
+                background: transparent !important;
+                background-color: transparent !important;
+            }
+
             [class*="chat_"] [class*="messagesWrapper_"],
             [class*="chat_"] [class*="managedReactiveScroller_"],
             [class*="chat_"] [class*="scrollerBase_"][class*="auto_"],
@@ -362,7 +425,6 @@ function updateChatExtBg() {
         [class*="membersWrap_"] [class*="thin_"] {
             background: transparent !important;
         }
-}
     ` : `
         /* ── Liste des membres — fond natif Discord (bloque l'image fixed) ── */
         [class*="membersWrap_"] {
@@ -376,18 +438,47 @@ function updateChatExtBg() {
         }
     `;
 
-        chatExtStyleEl.textContent = `
+    chatExtStyleEl.textContent = `
         /* ── Masquer le ::after natif Discord sur le conteneur children_ ── */
         div[class*="children_"]::after {
             display: none !important;
         }
 
-        /* ── Zone de messages : transparente pour laisser voir l'image injectée ── */
-        [class*="chat_"] [class*="messagesWrapper_"],
-        [class*="chat_"] [class*="managedReactiveScroller_"],
-        [class*="chat_"] [class*="scrollerBase_"][class*="auto_"],
-        [class*="chat_"] [class*="scrollerBase_"][class*="thin_"],
-        [class*="chat_"] [class*="scrollerBase_"][class*="none_"] {
+        /* ── Zone de messages : conteneur principal avec fond image + overlay ── */
+        [class*="messagesWrapper_"] {
+            position: relative !important;
+            background: transparent !important;
+            overflow: hidden !important;
+        }
+        [class*="messagesWrapper_"]::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: url(${url});
+            background-size: ${size};
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            z-index: 0;
+            pointer-events: none;
+        }
+        [class*="messagesWrapper_"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(${r},${g},${b},${alpha});
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* ── Rendre les scrollers transparents pour laisser voir le fond ── */
+        [class*="managedReactiveScroller_"],
+        [class*="scrollerBase_"] {
+            background: transparent !important;
+            position: relative;
+            z-index: 1;
+        }
+        [class*="scrollerContent_"] {
             background: transparent !important;
         }
 
@@ -400,10 +491,12 @@ function updateChatExtBg() {
         }
         ` : `
         /* ── Header du salon — fond natif Discord (bloque l'image fixed) ── */
-        [class*="subtitleContainer_"],
+        [class*="subtitleContainer_"] {
+            background: var(--background-primary) !important;
+        }
         [class*="subtitleContainer_"] section,
         [class*="subtitleContainer_"] [class*="container__"] {
-            background: var(--background-primary) !important;
+            background: transparent !important;
         }
         `}
 
@@ -517,14 +610,38 @@ function updateVoiceBg() {
 
         /* ── Wrapper global (voichat + sidebar discussion) ── */
         /* Rend le wrapper englobant transparent pour que l'image du callContainer_ */
-        /* soit visible dans la zone de séparation et le channelChatWrapper_         */
-        [class*="sidebarOpen_"][class*="noChat_"],
-        [class*="noChat_"][class*="video_"] {
+        /* reste visible dans la zone de séparation et la sidebar de chat à droite. */
+        #app-mount [class*="sidebarOpen_"],
+        #app-mount [class*="noChat_"],
+        #app-mount [class*="video_"],
+        #app-mount [class*="channelChatWrapper_"],
+        #app-mount [class*="chatContent_"],
+        #app-mount div[class*="chat_"],
+        #app-mount section[aria-label="En-tête du salon"] {
             background: transparent !important;
+            background-color: transparent !important;
             position: relative !important;
         }
-        [class*="channelChatWrapper_"] {
+
+        #app-mount [class*="sidebarOpen_"] [class*="scroller_"],
+        #app-mount [class*="sidebarOpen_"] [class*="scrollerBase_"],
+        #app-mount [class*="noChat_"] [class*="scroller_"],
+        #app-mount [class*="noChat_"] [class*="scrollerBase_"],
+        #app-mount [class*="video_"] [class*="scroller_"],
+        #app-mount [class*="video_"] [class*="scrollerBase_"],
+        #app-mount [class*="channelChatWrapper_"] [class*="scroller_"],
+        #app-mount [class*="channelChatWrapper_"] [class*="scrollerBase_"],
+        #app-mount [class*="chatContent_"] [class*="scroller_"],
+        #app-mount [class*="chatContent_"] [class*="scrollerBase_"],
+        #app-mount [class*="chat_"] [class*="messagesWrapper_"],
+        #app-mount [class*="chat_"] [class*="chatGradient_"],
+        #app-mount [class*="chat_"] [class*="channelBottomBarArea_"],
+        #app-mount [class*="chat_"] [class*="scrollableContainer_"],
+        #app-mount [class*="chat_"] [class*="themedBackground_"],
+        #app-mount [class*="chat_"] [class*="textArea_"],
+        #app-mount [class*="chat_"] [class*="inner_"] {
             background: transparent !important;
+            background-color: transparent !important;
         }
     `;
 }
@@ -644,11 +761,18 @@ function updateForumBg() {
         /* ── Wrapper englobant (forum + sidebar thread) ── */
         /* Rend transparent la zone de séparation entre le forum et sa sidebar */
         [class*="sidebarOpen_"]:not([class*="callContainer_"]),
-        [class*="noChat_"]:not([class*="callContainer_"]) {
+        [class*="noChat_"]:not([class*="callContainer_"]),
+        [class*="channelChatWrapper_"],
+        [class*="chatContent_"] {
             background: transparent !important;
+            background-color: transparent !important;
         }
-        [class*="channelChatWrapper_"] {
+        [class*="channelChatWrapper_"] [class*="scroller_"],
+        [class*="channelChatWrapper_"] [class*="scrollerBase_"],
+        [class*="chatContent_"] [class*="scroller_"],
+        [class*="chatContent_"] [class*="scrollerBase_"] {
             background: transparent !important;
+            background-color: transparent !important;
         }
     `;
 }
@@ -674,10 +798,10 @@ function updateSidebarBg() {
     DataStore.get<Record<string, string>>("customServerBanners").then(banners => {
         const guild = GuildStore.getGuild(guildId);
 
-        const url =
-            banners?.[guildId] ??
-            (guild ? (IconUtils.getGuildBannerURL(guild, true) ?? undefined) : undefined) ??
-            (guild?.icon ? (IconUtils.getGuildIconURL({ id: guild.id, icon: guild.icon, canAnimate: true }) ?? undefined) : undefined);
+        const customBannerUrl = banners?.[guildId];
+        const nativeBannerUrl = guild ? IconUtils.getGuildBannerURL(guild, true) : undefined;
+        const iconUrl = guild?.icon ? IconUtils.getGuildIconURL({ id: guild.id, icon: guild.icon, canAnimate: true }) : undefined;
+        const url = customBannerUrl || nativeBannerUrl || iconUrl;
 
         if (url) _applySidebarBg(url);
         else removeSidebarBg();
